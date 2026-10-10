@@ -29,6 +29,7 @@ const VERSION = '0.4.1';                     // 설정 창과 플레이 기록�
 const SAVE_KEY = 'lantern-expedition-v1';
 const SETTINGS_KEY = 'lantern-expedition-settings';
 const JR = 56;                               // 조이스틱 반경 (px)
+const CHAR_PHONE = 1.2;                      // 스마트폰에서 영웅 · 몬스터를 이만큼 크게 그린다 (화면이 작아 월드가 축소되어 보이기 때문. 판정 크기는 그대로)
 const REVIVE_T = 10;                         // 필드에서 쓰러진 영웅이 일어나기까지 (초)
 const MAX_HERO_LV = 20;
 const SKILL2_LV = 5;                         // 두 번째 스킬이 열리는 영웅 레벨
@@ -87,19 +88,19 @@ const HERO_DEFS = [
 ];
 // 등급: weight = 주점 카드에 나올 비중, shards = 카드 한 장(×1)이 주는 조각
 const RARITY = {
-  normal: { name: '노말',     color: '#d6d3cc', weight: 60, shards: 8, power: 1,    skills: 1 },
-  rare:   { name: '레어',     color: '#6aaeff', weight: 28, shards: 6, power: 1.12, skills: 2 },
-  epic:   { name: '에픽',     color: '#bb86ff', weight: 10, shards: 4, power: 1.28, skills: 3 },
-  legend: { name: '레전더리', color: '#ffc24d', weight: 2,  shards: 3, power: 1.5,  skills: 4 },
+  normal: { name: '노말',     color: '#d6d3cc', weight: 70,  shards: 8, power: 1,    skills: 1 },
+  rare:   { name: '레어',     color: '#6aaeff', weight: 25,  shards: 6, power: 1.12, skills: 2 },
+  epic:   { name: '에픽',     color: '#bb86ff', weight: 4.5, shards: 4, power: 1.28, skills: 3 },
+  legend: { name: '레전더리', color: '#ffc24d', weight: 0.5, shards: 3, power: 1.5,  skills: 4 },
 };   // power = 기본 체력 · 공격력 배율, skills = 쓸 수 있는 스킬 수 (등급이 하나 오를 때마다 하나씩 더)
 const SKILL_LV = [1, 5, 10, 15];             // n번째 스킬이 열리는 영웅 레벨
 const RARITY_KEYS = Object.keys(RARITY);
 const RARITY_TOTAL = RARITY_KEYS.reduce((a, k) => a + RARITY[k].weight, 0);
 // 주점: cost = 모집 1회 금화, refresh = 카드 바꾸기 금화, auto = 자동 교체 간격(게임 시간 초), pity = 이만큼 바꾸면 레전더리 보장
 // 모집 값은 뽑을수록 오른다: base + step × 지금까지 모집한 횟수 (max까지)
-const PUB = { base: 20, step: 2, max: 160, refresh: 10, auto: 90, pity: 25, get cost() { return Math.min(this.max, this.base + this.step * pub.pulls); } };
-// 영웅 레벨업 값: 레벨마다 조각은 1.15배, 고기는 1.2배씩 는다 (Lv1 → 2: 조각 3 · 고기 8, Lv10 → 11: 조각 11 · 고기 41, Lv19 → 20: 조각 37 · 고기 213)
-const lvCost = l => ({ shards: Math.round(3 * Math.pow(1.15, l - 1)), meat: Math.round(8 * Math.pow(1.2, l - 1)) });
+const PUB = { base: 20, step: 2, max: 160, refresh: 10, auto: 90, pity: 50, get cost() { return Math.min(this.max, this.base + this.step * pub.pulls); } };
+// 영웅 레벨업 값: 레벨마다 조각은 1.2배, 고기는 1.22배씩 는다 (Lv1 → 2: 조각 4 · 고기 10, Lv5 → 6: 조각 8 · 고기 22, Lv10 → 11: 조각 21 · 고기 60, Lv19 → 20: 조각 106 · 고기 359)
+const lvCost = l => ({ shards: Math.round(4 * Math.pow(1.2, l - 1)), meat: Math.round(10 * Math.pow(1.22, l - 1)) });
 
 // ================= 몬스터 =================
 const MON = {
@@ -162,13 +163,16 @@ const SHIP_COST = { wood: 400, stone: 200, gold: 150 };
 // CURVE = 본줄기 t번째 안개를 걷기 전에 갖추게 할 수준. 여기 숫자가 곧 이 게임의 성장 속도다.
 //         플레이 기록(설정 → 플레이 기록 복사)에 안개마다 실제 레벨이 찍히므로, 그것과 견주어 고친다
 const CURVE = {
-  squad: t => (t < 6 ? t : Math.min(SQUAD_MAX_LV - 2, Math.round(1.9 + 0.62 * t))),   // 용병단 레벨: 6 → 6, 12 → 9, 24 → 17, 36 → 24
-  forge: t => Math.min(8, Math.round(0.2 + 0.24 * t)),                                 // 대장간: 4 → 1, 12 → 3, 24 → 6, 33 → 8
-  barracks: t => Math.min(8, Math.round(0.23 * t - 0.2)),                              // 훈련장: 4 → 1, 12 → 3, 24 → 5, 36 → 8
-  lantern: t => Math.min(4, Math.round(0.11 * t)),                                     // 큰 등불: 5 → 1, 14 → 2, 23 → 3, 32 → 4
-  hero: t => Math.max(2, CURVE.squad(t) - 1),                                          // 가장 높은 영웅의 레벨 (영웅 레벨은 용병단 레벨을 넘지 못한다)
-  hero2: t => Math.min(10, Math.round(1 + 0.25 * t)),                                  // 두 번째로 높은 영웅의 레벨: 18 → 6, 24 → 7, 36 → 10 (조각이 드문 등급까지 키우게 한다)
-  owned: t => Math.min(7, 2 + Math.round(0.17 * (t - 2))),                             // 보유 영웅: 5 → 3, 11 → 4, 17 → 5, 23 → 6, 29 → 7
+  // 2026-10-10 플레이 기록: 3번째 안개에서 용병단 4 · 영웅 3 (그때의 표보다 한 걸음씩 앞섬) → 용병단을 1 올림
+  squad: t => (t < 6 ? t + 1 : Math.min(SQUAD_MAX_LV - 2, Math.round(2.9 + 0.62 * t))),   // 용병단 레벨: 3 → 4, 6 → 7, 12 → 10, 24 → 18, 36 → 25
+  // 건물은 값이 2.2배씩 뛰므로 한 지역에서 오를 수 있는 레벨이 많지 않다. 첫 지역에서는 대장간 6 · 훈련장 5 · 큰 등불 3까지
+  forge: t => Math.min(6, Math.round(0.5 + 0.16 * t)),                                 // 대장간: 2 → 1, 10 → 2, 16 → 3, 22 → 4, 28 → 5, 34 → 6
+  barracks: t => Math.min(5, Math.round(0.14 * t)),                                    // 훈련장: 4 → 1, 11 → 2, 18 → 3, 25 → 4, 33 → 5
+  lantern: t => Math.min(3, Math.round(0.09 * t)),                                     // 큰 등불: 6 → 1, 17 → 2, 28 → 3
+  hero: t => Math.min(16, Math.max(2, CURVE.squad(t) - 1)),                            // 가장 높은 영웅의 레벨 (용병단 레벨보다 하나 낮게. 첫 지역에서는 16까지 — 영웅 최고 레벨 20을 넘는 임무가 나오면 채울 수 없다)
+  // 등급 확률이 노말 70 · 레어 25 · 에픽 4.5 · 레전더리 0.5라서 레어 영웅의 조각은 모집 한 번에 평균 0.5개쯤, 새 에픽은 수십 번에 한 명이다. 그에 맞춰 낮게 잡는다
+  hero2: t => Math.min(6, Math.round(1 + 0.14 * t)),                                   // 두 번째로 높은 영웅의 레벨: 12 → 3, 24 → 4, 36 → 6
+  owned: t => Math.min(6, 2 + Math.round(0.13 * (t - 2))),                             // 보유 영웅: 6 → 3, 14 → 4, 22 → 5, 29 → 6
 };
 const MIS_HERO_EVERY = 3;                                                              // 영웅 레벨 임무는 안개 몇 개마다 (한 번은 한 명, 한 번은 두 명)
 const misHunt = t => Math.min(80, 10 + 2 * t);
@@ -201,10 +205,11 @@ const BUILDINGS = PADS.map(p => ({ isBuilding: true, pad: p, x: p.x, y: p.y - 56
 function padCostFor(id, n) {
   const g = (base, k) => Math.round(base * Math.pow(k, n));
   switch (id) {
-    // 레벨마다 대장간 · 훈련장은 1.8배, 큰 등불은 2.2배씩 비싸진다 (대장간 Lv0 → 1: 나무 5, Lv7 → 8: 나무 306, Lv9 → 10: 나무 992)
-    case 'lantern':  return { wood: g(12, 2.2), stone: g(12, 2.2), gold: g(10, 2.2) };
-    case 'forge':    return { wood: g(5, 1.8), stone: g(3, 1.8) };
-    case 'barracks': return { wood: g(4, 1.8), stone: g(5, 1.8) };
+    // 첫 값은 수입(나무 분당 약 28, 돌 분당 약 16 — 2026-10-10 플레이 기록) 40초어치쯤, 레벨마다 대장간 · 훈련장은 2.2배, 큰 등불은 2.6배씩 비싸진다
+    //   대장간 나무: 20 → 44 → 97 → 213 → 469 → 1031 → 2267 …   훈련장 돌: 20 → 44 → 97 → 213 → 469 …   큰 등불: 40 → 104 → 270 → 703 …
+    case 'lantern':  return { wood: g(40, 2.6), stone: g(40, 2.6), gold: g(30, 2.6) };
+    case 'forge':    return { wood: g(20, 2.2), stone: g(12, 2.2) };
+    case 'barracks': return { wood: g(14, 2.2), stone: g(20, 2.2) };
   }
   return null;
 }

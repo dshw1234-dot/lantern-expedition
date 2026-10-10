@@ -337,7 +337,7 @@ function drawFog(v) {
 function drawHero(h) {
   const d = h.def, r = d.r;
   const bob = h.walk ? Math.abs(Math.sin(now * 12 + h.idx)) * 3 : Math.sin(now * 2.5 + h.idx) * 0.8;
-  ctx.save(); ctx.translate(h.x, h.y);
+  ctx.save(); ctx.translate(h.x, h.y); ctx.scale(CHAR, CHAR);   // 발밑을 기준으로 키운다
   if (h.down) ctx.globalAlpha = 0.38; else if (h.clone) ctx.globalAlpha = 0.7;
   shadowAt(0, 2, r * 0.9);
   if (h.guardT > 0) { ctx.strokeStyle = 'rgba(127,176,255,.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 0, r + 8, (r + 8) * 0.45, 0, 0, TAU); ctx.stroke(); }
@@ -411,7 +411,7 @@ function drawHero(h) {
 function drawMonster(m) {
   const d = m.d, r = m.r, hit = m.flash > 0, R = REG();
   const wob = Math.sin(now * (m.walk ? 10 : 3) + m.ph);
-  ctx.save(); ctx.translate(m.x, m.y);
+  ctx.save(); ctx.translate(m.x, m.y); ctx.scale(CHAR, CHAR);
   shadowAt(0, 2, r);
   if (m.elite) {   // 정예: 금빛 테두리
     ctx.strokeStyle = `rgba(255,207,74,${0.55 + 0.25 * Math.sin(now * 5)})`; ctx.lineWidth = 3;
@@ -642,11 +642,11 @@ function drawWorldUI(v) {
   for (const n of nodes) if (n.hp > 0 && n.hitT > 0 && inView(n, v)) { const s = w2s(n.x, n.y - n.r * 2.8); bar(s.x, s.y, 22, n.hp / n.maxHp, '#e8c07a'); }
   for (const m of monsters) {
     if (m.d.boss || !inView(m, v) || (!m.arena && !isRevealed(m.x, m.y))) continue;
-    if (m.hp < m.maxHp || m.d.pig) { const s = w2s(m.x, m.y - m.r * 2.2 - 6); bar(s.x, s.y, Math.max(18, m.r * 2 * SCALE), m.hp / m.maxHp, m.d.pig ? '#ffcf4a' : '#ff7a6b'); }
-    if (m.elite) { const s = w2s(m.x, m.y - m.r * 2.2 - 18); outlineText('정예', s.x, s.y, 11, '#ffcf4a'); }
+    if (m.hp < m.maxHp || m.d.pig) { const s = w2s(m.x, m.y - m.r * 2.2 * CHAR - 6); bar(s.x, s.y, Math.max(18, m.r * 2 * SCALE * CHAR), m.hp / m.maxHp, m.d.pig ? '#ffcf4a' : '#ff7a6b'); }
+    if (m.elite) { const s = w2s(m.x, m.y - m.r * 2.2 * CHAR - 18); outlineText('정예', s.x, s.y, 11, '#ffcf4a'); }
   }
   for (const h of heroes) {
-    const s = w2s(h.x, h.y - h.def.r * 2 - 10);
+    const s = w2s(h.x, h.y - h.def.r * 2 * CHAR - 10);
     if (!h.down) { bar(s.x, s.y, 22, h.hp / h.maxHp, '#7fe0a4'); continue; }
     const f = clamp(h.downT / reviveNeed(), 0, 1);   // 부활까지 남은 시간
     ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, TAU); ctx.stroke();

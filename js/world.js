@@ -31,13 +31,15 @@ let chunkCap = 12;                               // 화면이 넓어 한 번에 
 const chunks = new Map();                        // 칸 번호 → 바닥 그림
 const mapCv = document.createElement('canvas');  // 지역 전체 지형 (지형 격자 한 칸 = 1픽셀). 미니맵과 지도 창이 쓴다
 const dark = document.createElement('canvas'), dctx = dark.getContext('2d');
-let VW = 1, VH = 1, DPR = 1, SCALE = 1;
+let VW = 1, VH = 1, DPR = 1, SCALE = 1, CHAR = 1;   // CHAR = 영웅 · 몬스터를 그릴 때의 배율 (스마트폰에서만 CHAR_PHONE)
+const isPhone = () => Math.min(VW, VH) < 600 && !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);   // 손가락으로 누르는 작은 화면
 function resize() {
   const r = cv.getBoundingClientRect();
   VW = Math.max(1, r.width); VH = Math.max(1, r.height);
   DPR = Math.min(2, window.devicePixelRatio || 1);
   cv.width = Math.round(VW * DPR); cv.height = Math.round(VH * DPR);
   SCALE = clamp(Math.min(VW, VH) / 560, 0.6, 1.25);
+  CHAR = isPhone() ? CHAR_PHONE : 1;
   dark.width = Math.ceil(VW / 2); dark.height = Math.ceil(VH / 2);
   const ms = Math.round(92 * DPR); mini.width = mini.height = ms;
 }
@@ -498,9 +500,12 @@ function loadRegion(r, saveOld = false) {
   for (const g of gates) { const q = (d.g || {})[g.sec]; if (q) { g.n = q[0] | 0; g.paid = { wood: q[1] | 0, stone: q[2] | 0, gold: q[3] | 0 }; if (q[4] != null) g.t0 = +q[4] || 0; } }
   for (const s of sectors) if (s.open) openSector(s, false);
   // 임무 번호. 임무가 생기기 전의 저장이라면, 이미 걷은 가장 깊은 안개 바로 다음 임무에서 시작한다
-  const deep = sectors.filter(s => s.trunk && s.open && s.gate).pop();
-  mIdx = d.mi != null ? clamp(d.mi | 0, 0, missions.length) : deep ? deep.gate.mi + 1 : 0;
-  mN = d.mi != null ? d.mn | 0 : 0;
+  // 임무 사슬의 순서는 표(CURVE)를 고치면 달라지므로, 저장된 번호를 그대로 믿지 않고 "걷은 안개"에 맞는 범위 안으로 맞춘다:
+  //   가장 깊이 걷은 안개의 다음 임무 ≤ 지금 임무 ≤ 다음에 걷을 안개의 임무
+  const deep = sectors.filter(s => s.trunk && s.open && s.gate).pop(), nextFog = sectors.find(s => s.trunk && s.id && !s.open);
+  const lo = deep ? deep.gate.mi + 1 : 0, hi = nextFog ? nextFog.gate.mi : missions.length;
+  mIdx = clamp(d.mi != null ? d.mi | 0 : lo, lo, hi);
+  mN = d.mi != null && mIdx === (d.mi | 0) ? d.mn | 0 : 0;
   rebuildSquad(true);
   placeSquad(START.x, START.y);
 }

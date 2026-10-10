@@ -46,6 +46,11 @@ button { font: inherit; color: inherit; }
 @keyframes bump { 40% { transform: scale(1.12); } }
 .res.squad { padding: 4px 10px; gap: 7px; }
 .res.squad b { font-weight: 400; color: var(--glow); }
+.res.power { position: relative; padding: 4px 11px 4px 7px; }
+.res.power b { font-weight: 400; color: #ffd9a0; }
+#pw-up { position: absolute; left: 50%; top: 100%; font: 13px/1 var(--font-display); font-style: normal; color: #9ff0a8; white-space: nowrap; opacity: 0; transform: translate(-50%, 2px); text-shadow: 0 1px 3px rgba(0, 0, 0, .8); }
+#pw-up.show { animation: pwup 1.8s ease-out; }
+@keyframes pwup { 0% { opacity: 0; transform: translate(-50%, 9px); } 12% { opacity: 1; transform: translate(-50%, 2px); } 75% { opacity: 1; transform: translate(-50%, 2px); } 100% { opacity: 0; transform: translate(-50%, -3px); } }
 .xbar { width: 42px; height: 5px; border-radius: 99px; background: rgba(255, 255, 255, .14); overflow: hidden; }
 .xbar i { display: block; height: 100%; width: 0; background: var(--lantern); }
 #quest { max-width: 250px; padding: 8px 12px 9px; border-radius: 12px; background: var(--panel); border: 1px solid var(--edge); font-size: 13.5px; line-height: 1.45; }
@@ -235,6 +240,7 @@ button.hcard { cursor: pointer; }
       <div id="left">
         <div id="res">
           <span class="res squad" id="r-squad" title="용병단 레벨"><b id="sq-lv">Lv 1</b><span class="xbar"><i id="sq-xp"></i></span></span>
+          <span class="res power" id="r-power" title="원정대 전투력 (출전한 영웅의 공격력 × 4 + 체력, 열린 스킬마다 +10%)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M17.5 2.5 16 8l-7 7-2-2 7-7Z" fill="#e8ecf5"/><path d="M5.8 11.8l4.4 4.4" stroke="#ffcf6b" stroke-width="2.2" stroke-linecap="round"/><path d="M7.2 14.8 4 18" stroke="#c98a4b" stroke-width="2.4" stroke-linecap="round"/></svg><b id="pw">0</b><i id="pw-up" aria-hidden="true"></i></span>
           <span class="res" id="r-wood" title="나무"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="6" width="14" height="8" rx="4" fill="#9a6a3c"/><ellipse cx="15.5" cy="10" rx="3" ry="4" fill="#dcaa6c"/><ellipse cx="15.5" cy="10" rx="1.3" ry="1.9" fill="#9a6a3c"/></svg><b>0</b></span>
           <span class="res" id="r-stone" title="돌"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 14 5 7l5-3 6 2 2 7-6 3Z" fill="#9aa0ae"/><path d="M5 7l5-3 6 2-5 2Z" fill="#c9cdd8"/></svg><b>0</b></span>
           <span class="res" id="r-gold" title="금화"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="#ffcf4a"/><circle cx="10" cy="10" r="4.8" fill="none" stroke="#c9901c" stroke-width="1.6"/></svg><b>0</b></span>
@@ -264,7 +270,7 @@ button.hcard { cursor: pointer; }
 
   <div id="title" class="overlay">
     <div class="card" role="dialog" aria-labelledby="title-h">
-      <p class="eyebrow">한 손 원정 RPG · 프로토타입 0.4.3</p>
+      <p class="eyebrow">한 손 원정 RPG · 프로토타입 0.4.5</p>
       <h1 id="title-h"><span class="lamp" aria-hidden="true"></span>등불 원정대</h1>
       <p class="lead">안개가 왕국을 삼켰습니다. 마지막 등불을 든 원정대를 이끌고 마을을 다시 세우세요. 폐허의 안개 군주를 물리치면 바다 건너 서리 군도로 가는 길이 열려요.</p>
       <p class="pitch"><b>끌면</b> 움직이고, <b>멈추면</b> 영웅들이 알아서 싸워요.</p>

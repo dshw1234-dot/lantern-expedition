@@ -18,7 +18,9 @@ function recalcGear() {
 const modeBuff = k => (mode && mode.buffs && mode.buffs[k]) || 0;
 const lvMul = i => 1 + 0.1 * (roster[i].lvl - 1);                        // 영웅 레벨 1당 +10%
 const tierPow = i => RARITY[HERO_DEFS[i].rarity].power;                 // 등급이 높을수록 기본 체력 · 공격력이 높다
-const supplyMul = () => 1 + SUPPLY.per * (lv.supply || 0);              // 보급: 모든 영웅의 공격력 · 체력 (다른 보너스와 따로 곱해진다)
+const supplyMul = () => 1 + SUPPLY.supply.per * (lv.supply || 0);       // 전투 보급: 모든 영웅의 공격력 · 체력 (다른 보너스와 따로 곱해진다)
+const chopDmg = () => CHOP * (1 + SUPPLY.gspd.per * (lv.gspd || 0));    // 채집 속도 보급: 자원을 캐는 한 번의 피해
+const yieldBonus = () => SUPPLY.gyld.per * (lv.gyld || 0);              // 채집량 보급: 자원이 하나 떨어질 때 덤이 나올 확률 (1이면 언제나 두 개)
 const atkOf = i => HERO_DEFS[i].atk * tierPow(i) * lvMul(i) * supplyMul() * (1 + 0.2 * lv.forge + ((gearStat.atkMain || 0) + (gearStat.atkPct || 0)) / 100 + modeBuff('atk'));
 const hpOf = i => Math.round(HERO_DEFS[i].hp * tierPow(i) * lvMul(i) * supplyMul() * (1 + 0.2 * lv.barracks + ((gearStat.hpMain || 0) + (gearStat.hpPct || 0)) / 100 + modeBuff('hp')));
 // n번째 스킬을 쓸 수 있는가: 등급이 정한 개수 안이고(노말 1 ~ 레전더리 4), 영웅 레벨이 SKILL_LV[n-1] 이상
@@ -47,6 +49,10 @@ const heroCap = () => Math.min(MAX_HERO_LV, squad.lvl);
 const squadSpeed = () => 230 * (1 + 0.06 * lv.lantern);
 const revealR = () => 320 + 60 * lv.lantern;
 const reviveNeed = () => (!mode && inVillage(P.x, P.y) ? 0.6 : REVIVE_T);
+// 전투력: 영웅 한 명 = (공격력 × POWER_ATK + 체력) × (1 + POWER_SKILL × 열린 2 ~ 4번 스킬 수). 공격력 · 체력은 영웅 창에 보이는 그 숫자들. 원정대 = 출전한 영웅의 합
+const skillsOpen = i => { let n = 0; for (let k = 2; k <= RARITY[HERO_DEFS[i].rarity].skills; k++) if (roster[i].lvl >= SKILL_LV[k - 1]) n++; return n; };   // 등급이 허락하고 레벨이 닿은 2 ~ 4번 스킬의 수
+const heroPower = i => Math.round((atkOf(i) * POWER_ATK + hpOf(i)) * (1 + POWER_SKILL * skillsOpen(i)));
+const squadPower = () => roster.reduce((s, r, i) => s + (r.owned && r.active ? heroPower(i) : 0), 0);
 function teamAtk() { const a = heroes.filter(h => !h.down); return a.length ? a.reduce((s, h) => s + heroAtk(h), 0) / a.length : 10; }
 
 // ================= 이동 · 탐색 =================
@@ -196,7 +202,7 @@ function heroAttack(h, t) {
     else {
       if (d.proj === 'bolt') fxs.push({ kind: 'bolt', x: h.x, y: h.y - 20, x2: t.x, y2: t.y - 14, t: 0, T: 0.2, c: '#fff3a0', seed: Math.random() });
       else fxSlash(h, t);
-      damageNode(t, CHOP);
+      damageNode(t, chopDmg());
     }
     return;
   }
@@ -754,7 +760,7 @@ function damageNode(n, dmg) {
   if (n.hp <= 0) return;
   n.hp -= dmg; n.shake = 0.15; n.hitT = 1.5; n.acc += dmg;
   // 캐는 양은 자원 오브젝트마다 정해져 있다 (공격력 · 인원과 상관없다. 인원이 많으면 더 빨리 캘 뿐이고, 다시 자라는 시간이 수입의 한도가 된다)
-  const give = () => spawnPickup(n.nd.res, n.x, n.y - 10, 1);
+  const yb = yieldBonus(), give = () => spawnPickup(n.nd.res, n.x, n.y - 10, 1 + Math.floor(yb) + (Math.random() < yb % 1 ? 1 : 0));   // 채집량 보급만큼 덤
   while (n.acc >= n.nd.per && n.left > 0) { n.acc -= n.nd.per; n.left--; give(); }
   burst(n.x, n.y - 16, n.nd.res === 'wood' ? '#b98552' : '#b8bdc9', 3, 90);
   if (n.hp <= 0) {
@@ -778,7 +784,7 @@ function updProjs(dt) {
 function impact(p) {
   const t = p.t;
   if (p.heal) { if (t && t.isHero) healHero(t, p.heal); return; }
-  if (p.node) { if (t && t.hp > 0) damageNode(t, CHOP); return; }
+  if (p.node) { if (t && t.hp > 0) damageNode(t, chopDmg()); return; }
   if (p.splash) {
     burst(p.tx, p.ty, '#ff9a4a', 8, 120);
     fxs.push({ kind: 'ring', x: p.tx, y: p.ty + 10, r: p.splash, t: 0, T: 0.25, c: '#ff9a4a' });
@@ -1061,10 +1067,10 @@ const gateLive = g => sectors[g.from].open && !sectors[g.sec].open;   // 지금 
 function openGate(g) {
   const s = sectors[g.sec], rw = gateReward(s.depth);
   // 플레이 기록 한 줄: [지역, 구역, 깊이, 조건, 플레이 시간(초), 이 마법진에 걸린 시간(초), 용병단 Lv, 영웅 최고 Lv, 영웅 Lv 합, 보유 영웅, 대장간, 훈련장, 큰 등불, 처치 수,
-  //                       그때까지 번 나무, 돌, 금화, 고기, 경험치 (총량), 주점 모집 횟수, 보급 단계]   ← 번 총량과 모집 횟수는 0.4.2부터, 보급은 0.4.3부터. 수입을 재서 값과 CURVE를 맞추는 데 쓴다
+  //                       그때까지 번 나무, 돌, 금화, 고기, 경험치 (총량), 주점 모집 횟수, 전투 보급 단계, 원정대 전투력]   ← 번 총량과 모집 횟수는 0.4.2부터, 보급은 0.4.3부터, 전투력은 0.4.4부터. 수입을 재서 값과 CURVE를 맞추는 데 쓴다
   const lvs = roster.filter(r => r.owned).map(r => r.lvl);
   plog.push([regionIdx, s.id, s.depth, g.req.type, Math.round(playTime), Math.round(playTime - (g.t0 < 0 ? playTime : g.t0)), squad.lvl, Math.max(...lvs), lvs.reduce((a, b) => a + b, 0), lvs.length, lv.forge, lv.barracks, lv.lantern, kills,
-    ...['wood', 'stone', 'gold', 'meat', 'xp'].map(k => Math.round(life[k] || 0)), pub.pulls, lv.supply]);
+    ...['wood', 'stone', 'gold', 'meat', 'xp'].map(k => Math.round(life[k] || 0)), pub.pulls, lv.supply, squadPower()]);
   openSector(s, true);
   res.gold += rw.gold; life.gold += rw.gold; bumpRes('gold'); gainXp(rw.xp);
   toast(`안개가 걷혔어요! 금화 +${rw.gold}${s.way ? ' · 순간이동 표석 발견' : ''}`);

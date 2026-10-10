@@ -470,7 +470,7 @@ function placeSquad(x, y) {
 // ================= 새 게임 · 지역 이동 =================
 const newRegionData = () => REGIONS.map(() => ({ bd: false, bs: false, open: [], g: {} }));
 function newGame() {
-  lv = { lantern: 0, forge: 0, barracks: 0, ship: 0, supply: 0 };   // supply = 보급 단계 (고기로 올린다. SUPPLY)
+  lv = { lantern: 0, forge: 0, barracks: 0, ship: 0, supply: 0, gspd: 0, gyld: 0 };   // supply · gspd · gyld = 보급 단계 (고기로 올린다. SUPPLY)
   gen = { normal: 0, rare: 0, epic: 0, legend: 0 };
   roster = HERO_DEFS.map((d, i) => ({ owned: i < 2, lvl: 1, shards: 0, active: i < 2 }));
   squad = { lvl: 1, xp: 0 };

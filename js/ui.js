@@ -31,7 +31,7 @@ const TIPS = {
   elite: '금빛 테두리는 정예 몬스터예요. 훨씬 강하지만 장비를 떨어뜨려요',
   chest: '보물상자 옆에 멈춰 서면 열려요',
   map: '오른쪽 위 지도를 누르면 표석으로 순간이동할 수 있어요',
-  meat: '고기가 쌓였어요. 위쪽 영웅 얼굴을 눌러 영웅 창을 열고 보급을 올리면 모두가 강해져요',
+  meat: '고기가 쌓였어요. 영웅 얼굴을 눌러 영웅 창을 열면 맨 위의 보급에서 전투력과 채집을 키울 수 있어요',
 };
 const MEAT_TIP = 150;   // 고기가 이만큼 모이면 쓸 곳을 한 번 알려 준다
 const tipQueue = [];
@@ -121,6 +121,7 @@ function modeHud() {
   if (camp) return [`캠프 중 ${fmtTime(camp.t)} · 경험치 2배 · 오늘 남은 캠프 ${fmtTime(CAMP_PER_DAY - daily.campSec)}`, daily.campSec / CAMP_PER_DAY];
   return null;
 }
+let pwTarget = -1, pwShown = -1;   // HUD의 전투력: 목표값과 지금 보이는 값 (숫자가 따라 올라가며 바뀐다)
 let uiAcc = 0, miniAcc = 0, lastQuest = -1, curObj = null;   // curObj = 지금 목표 (objective()의 결과. 0.12초마다 새로 구한다)
 function uiTick(dt) {
   uiAcc += dt; miniAcc += dt;
@@ -135,6 +136,19 @@ function uiTick(dt) {
   bumpSet.clear();
   $('sq-lv').textContent = `Lv ${squad.lvl}`;
   $('sq-xp').style.width = `${squad.lvl >= SQUAD_MAX_LV ? 100 : clamp(squad.xp / xpNeed(squad.lvl), 0, 1) * 100}%`;
+  const pw = squadPower();
+  if (pw !== pwTarget) {   // 전투력이 늘면 얼마나 늘었는지 잠깐 보여 준다
+    if (pwTarget >= 0 && pw > pwTarget && state === 'play') {
+      const up = $('pw-up'), el = $('r-power');
+      up.textContent = `+${fmtN(pw - pwTarget)}`;
+      up.classList.remove('show'); el.classList.remove('bump'); void el.offsetWidth; up.classList.add('show'); el.classList.add('bump');
+    }
+    pwTarget = pw;
+  }
+  if (pwShown !== pwTarget) {
+    pwShown = pwShown < 0 ? pwTarget : pwShown + Math.sign(pwTarget - pwShown) * Math.max(1, Math.ceil(Math.abs(pwTarget - pwShown) * 0.35));
+    $('pw').textContent = fmtN(pwShown);
+  }
   const q = curObj = objective();
   if ($('qt').textContent !== q.text) $('qt').textContent = q.text;
   if ($('qp').textContent !== q.prog) $('qp').textContent = q.prog;
@@ -230,18 +244,19 @@ function promoteShards(k, all) {
   saveLocal();
   return n;
 }
-// ---- 보급: 고기를 써서 모든 영웅의 공격력 · 체력을 올린다 (SUPPLY)
-const supplyCost = times => { let c = 0; for (let k = 0; k < times && lv.supply + k < SUPPLY.max; k++) c += SUPPLY.cost(lv.supply + k); return c; };
-const supplyPct = n => `${Math.round(n * SUPPLY.per * 1000) / 10}%`;
-function buySupply(times) {
-  if (lv.supply >= SUPPLY.max || res.meat < supplyCost(times)) return 0;
-  const before = lv.supply;
-  res.meat -= supplyCost(times); lv.supply = Math.min(SUPPLY.max, lv.supply + times);
-  bumpRes('meat'); refreshAllHp();
-  for (const h of heroes) if (!h.down) burst(h.x, h.y - 16, '#ffb37a', 10, 140);
+// ---- 보급: 고기를 써서 올리는 성장 세 가지 (SUPPLY의 열쇠 k = supply 전투 · gspd 채집 속도 · gyld 채집량. 단계는 lv[k])
+const upCost = (k, times = 1) => { let c = 0; for (let j = 0; j < times && lv[k] + j < SUPPLY[k].max; j++) c += SUPPLY[k].cost(lv[k] + j); return c; };
+const upPct = (k, n) => `${Math.round(n * SUPPLY[k].per * 1000) / 10}%`;
+function buyUp(k, times = 1) {
+  const U = SUPPLY[k];
+  if (!U || lv[k] + times > U.max || res.meat < upCost(k, times)) return 0;
+  res.meat -= upCost(k, times); lv[k] += times;
+  bumpRes('meat');
+  if (k === 'supply') { refreshAllHp(); for (const h of heroes) if (!h.down) burst(h.x, h.y - 16, '#ffb37a', 10, 140); }
   saveLocal();
-  return lv.supply - before;
+  return times;
 }
+const fmtN = n => Math.round(n).toLocaleString('ko-KR');   // 1234 → 1,234
 function grantShards(i, n) {
   const r = roster[i];
   if (r.owned && isMax(i)) { gen[HERO_DEFS[i].rarity] += n; return false; }   // 만렙 영웅의 조각은 공용 조각으로 들어온다
@@ -421,15 +436,19 @@ const PANELS = {
         const toggle = r.owned ? `<button class="btn xs ${r.active ? 'primary' : 'ghost'}" type="button" data-act="act:${i}"${mode || (!r.active && act >= squadLimit()) || (r.active && act <= 1) ? ' disabled' : ''}>${r.active ? '출전 중' : '대기'}</button>` : '';
         return `<div class="row${r.owned ? '' : ' off'}${focus === i ? ' focus' : ''}" data-row="${i}" style="--rc:${R.color}"><span class="face" style="--c:${d.color}"></span>` +
           `<div class="rmain"><div class="rline"><b>${d.name}</b><span class="rar">${R.name} · 스킬 ${R.skills}개</span><span class="dim">${d.role}</span></div>` +
-          `<div class="dim">공격력 ${Math.round(atkOf(i))} · 체력 ${hpOf(i)}<br>${skills}</div><div class="cost">${cost}</div></div>` +
+          `<div class="dim"><span style="color:var(--glow)">전투력 ${fmtN(heroPower(i))}</span> · 공격력 ${Math.round(atkOf(i))} · 체력 ${hpOf(i)}<br>${skills}</div><div class="cost">${cost}</div></div>` +
           `<div class="rside"><span class="big">Lv ${r.lvl}</span>${r.owned && !max ? `<button class="btn sm primary" type="button" data-act="lv:${i}"${canLevel(i) ? '' : ' disabled'}>레벨업</button>` : ''}` +
           `${fillable(i) > 0 ? `<button class="btn xs ghost" type="button" data-act="fill:${i}">공용 ${fillable(i) * SHARD_X.hero}개 → 조각 ${fillable(i)}</button>` : ''}${toggle}</div></div>`;
       }).join('');
       // 보급 (고기로 올리는 성장) 과 공용 조각은 영웅 목록 맨 위에
-      const sup = lv.supply, smax = sup >= SUPPLY.max, c1 = supplyCost(1), c10 = supplyCost(10);
-      const supRow = `<div class="row" style="--rc:#ffb37a"><span class="face" style="--c:#c9713f"></span><div class="rmain"><div class="rline"><b>보급</b><span class="rar">${sup}단계</span><span class="dim">고기를 든든히 먹여요</span></div>` +
-        `<div class="dim">모든 영웅의 공격력 · 체력 +${supplyPct(sup)}${smax ? '' : ` → +${supplyPct(sup + 1)}`}</div><div class="cost">${smax ? '<span class="dim">최고 단계예요</span>' : `<span class="${res.meat >= c1 ? 'ok' : 'lack'}">고기 ${c1}</span>`}</div></div>` +
-        `<div class="rside">${smax ? '' : `<button class="btn sm primary" type="button" data-act="sup:1"${res.meat >= c1 ? '' : ' disabled'}>보급</button><button class="btn xs ghost" type="button" data-act="sup:10"${sup + 10 <= SUPPLY.max && res.meat >= c10 ? '' : ' disabled'}>10단계 · 고기 ${c10}</button>`}</div></div>`;
+      const upLine = (k, bulk) => {
+        const U = SUPPLY[k], n = lv[k], max = n >= U.max, c = upCost(k), c10 = upCost(k, 10);
+        return `<div class="cost"><b style="color:var(--glow)">${U.name}</b><span>${n}단계 · ${U.what} +${upPct(k, n)}${max ? ' (최고)' : ` → +${upPct(k, n + 1)}`}</span>` +
+          (max ? '' : `<button class="btn xs ${res.meat >= c ? 'primary' : 'ghost'}" type="button" data-act="sup:${k}"${res.meat >= c ? '' : ' disabled'}>고기 ${c}</button>` +
+            (bulk && n + 10 <= U.max ? `<button class="btn xs ghost" type="button" data-act="sup10:${k}"${res.meat >= c10 ? '' : ' disabled'}>10단계 · 고기 ${c10}</button>` : '')) + '</div>';
+      };
+      const supRow = `<div class="row" style="--rc:#ffb37a"><span class="face" style="--c:#c9713f"></span><div class="rmain"><div class="rline"><b>보급</b><span class="dim">고기를 써서 원정대를 키워요</span></div>` +
+        `${upLine('supply', true)}${upLine('gspd')}${upLine('gyld')}</div><span></span></div>`;
       const genLines = RARITY_KEYS.filter(k => gen[k] > 0).map(k => {
         const up = upTier(k), can = up && gen[k] >= SHARD_X.up;
         return `<div class="cost"><span style="color:${RARITY[k].color}">${RARITY[k].name} ${gen[k]}개</span>` +
@@ -438,7 +457,7 @@ const PANELS = {
       const genRow = genLines ? `<div class="row"><span class="face" style="--c:#8d8a9c"></span><div class="rmain"><div class="rline"><b>공용 조각</b></div>` +
         `<div class="dim">만렙 영웅의 조각이 등급별로 모여요. ${SHARD_X.hero}개로 같은 등급 영웅의 조각 1개(영웅 칸의 버튼), ${SHARD_X.up}개로 윗등급 공용 조각 1개</div>${genLines}</div><span></span></div>` : '';
       return head('영웅', purse(MEAT_SVG, res.meat, '고기')) +
-        `<p class="panel-sub">등급이 높을수록 기본 능력치가 높고 스킬이 하나씩 더 있어요 (노말 1 · 레어 2 · 에픽 3 · 레전더리 4). 스킬은 Lv${SKILL_LV.slice(1).join(' · ')}에 차례로 열려요. 영웅 레벨은 용병단 레벨(지금 ${cap})까지. 출전 ${act}/${squadLimit()}명 (훈련장 2레벨마다 +1).</p>` +
+        `<p class="panel-sub"><b style="color:var(--glow)">원정대 전투력 ${fmtN(squadPower())}</b> — 출전한 영웅의 (공격력 × ${POWER_ATK} + 체력)을 더한 값이에요. 2 ~ 4번 스킬이 하나 열릴 때마다 그 영웅은 +${Math.round(POWER_SKILL * 100)}%.<br>등급이 높을수록 기본 능력치가 높고 스킬이 하나씩 더 있어요 (노말 1 · 레어 2 · 에픽 3 · 레전더리 4). 스킬은 Lv${SKILL_LV.slice(1).join(' · ')}에 차례로 열려요. 영웅 레벨은 용병단 레벨(지금 ${cap})까지. 출전 ${act}/${squadLimit()}명 (훈련장 2레벨마다 +1).</p>` +
         `<div class="scroll">${supRow}${genRow}${rows}</div><div class="btns"><button class="btn ghost" type="button" data-act="close">닫기</button></div>`;
     },
     after(focus) { const el = card.querySelector(`[data-row="${focus}"]`); if (el) el.scrollIntoView({ block: 'nearest' }); },
@@ -446,7 +465,7 @@ const PANELS = {
       const i = a === 'lv' || a === 'act' || a === 'fill' ? +arg : panelArg;   // 영웅 칸의 버튼이 아니면 보던 자리를 그대로 둔다
       if (a === 'lv') levelUpHero(i);
       else if (a === 'fill') fillShards(i);
-      else if (a === 'sup') buySupply(+arg);
+      else if (a === 'sup' || a === 'sup10') buyUp(arg, a === 'sup10' ? 10 : 1);
       else if (a === 'up' || a === 'upall') promoteShards(arg, a === 'upall');
       else if (a === 'act') {
         const r = roster[i], act = roster.filter(o => o.owned && o.active).length;
@@ -846,9 +865,9 @@ $('btn-home').addEventListener('click', () => {   // 귀환 포털: 마을로 �
 // 밸런스를 맞출 때 보는 글: 지금 상태 한 줄 + 안개를 걷을 때마다 적어 둔 기록 (cols가 각 칸의 뜻)
 function playLogText() {
   return JSON.stringify({ game: 'lantern', ver: VERSION, t: Math.round(playTime), kills, region: regionIdx, open: [openCount(), sectors.length - 1], squad: squad.lvl,
-    heroes: roster.map(r => (r.owned ? r.lvl : 0)), shards: roster.map(r => r.shards), pool: { ...gen }, lv, prod: { wood: prod.wood.lvl, stone: prod.stone.lvl, gold: prod.gold.lvl, store: prod.store },
+    heroes: roster.map(r => (r.owned ? r.lvl : 0)), shards: roster.map(r => r.shards), pool: { ...gen }, power: squadPower(), lv, prod: { wood: prod.wood.lvl, stone: prod.stone.lvl, gold: prod.gold.lvl, store: prod.store },
     res: Object.fromEntries(Object.keys(res).map(k => [k, Math.floor(res[k])])), earned: Object.fromEntries(Object.keys(life).map(k => [k, Math.round(life[k])])), pulls: pub.pulls, next: objective().text,
-    cols: 'region,sec,depth,type,t,dt,squad,maxHero,sumHero,owned,forge,barracks,lantern,kills,woodEarned,stoneEarned,goldEarned,meatEarned,xpEarned,pulls,supply', log: plog });
+    cols: 'region,sec,depth,type,t,dt,squad,maxHero,sumHero,owned,forge,barracks,lantern,kills,woodEarned,stoneEarned,goldEarned,meatEarned,xpEarned,pulls,supply,power', log: plog });
 }
 function serialize() {
   saveRegionState();

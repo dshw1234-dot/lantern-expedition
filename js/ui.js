@@ -31,9 +31,9 @@ const TIPS = {
   elite: '금빛 테두리는 정예 몬스터예요. 훨씬 강하지만 장비를 떨어뜨려요',
   chest: '보물상자 옆에 멈춰 서면 열려요',
   map: '오른쪽 위 지도를 누르면 표석으로 순간이동할 수 있어요',
-  meat: '고기가 쌓였어요. 영웅 레벨업에 쓰고, 마을 생산소에서 벌목장을 강화하는 데도 써요',
+  meat: '고기가 쌓였어요. 위쪽 영웅 얼굴을 눌러 영웅 창을 열고 보급을 올리면 모두가 강해져요',
 };
-const MEAT_TIP = 300;   // 고기가 이만큼 모이면 쓸 곳을 한 번 알려 준다
+const MEAT_TIP = 150;   // 고기가 이만큼 모이면 쓸 곳을 한 번 알려 준다
 const tipQueue = [];
 let tipText = '', tipT = 0, idleN = 0;
 function tip(id, urgent) {   // urgent = 곧바로 띄운다. 차례를 기다리던 도움말은 못 본 것으로 되돌려 다음 기회에 다시 뜨게 한다
@@ -199,10 +199,52 @@ function levelUpHero(i) {
   for (const h of heroes) if (h.idx === i) { refreshHp(h); burst(h.x, h.y - 16, '#ffe08a', 18, 160); }
   const sk = SKILL_LV.indexOf(r.lvl), sd = HERO_DEFS[i], newSkill = sk > 0 && sk < RARITY[sd.rarity].skills ? [sd.s1, sd.s2, sd.s3, sd.s4][sk] : null;   // 이 레벨에 새로 열리는 스킬
   toast(newSkill ? `${sd.name} Lv${r.lvl} · 새 스킬 「${newSkill.name}」 해금!` : `${sd.name} Lv${r.lvl}`);
+  poolShards(i);   // 만렙이 됐다면 남은 조각은 공용 조각으로
   saveLocal();
+}
+// ---- 공용 조각: 만렙 영웅의 조각은 그 등급의 공용 조각으로 바뀐다 (남아 있던 것도, 그 뒤에 받는 것도). 교환 비율은 SHARD_X
+const isMax = i => roster[i].lvl >= MAX_HERO_LV;
+function poolShards(i, quiet) {
+  const r = roster[i], k = HERO_DEFS[i].rarity, n = r.shards;
+  if (!r.owned || !isMax(i) || n <= 0) return 0;
+  gen[k] += n; r.shards = 0;
+  if (!quiet) toast(`${HERO_DEFS[i].name} 만렙! 남은 조각 ${n}개가 ${RARITY[k].name} 공용 조각이 됐어요`);
+  return n;
+}
+// 공용 조각 SHARD_X.hero개 → 고른 영웅(같은 등급, 보유 중)의 조각 1개. 다음 레벨업에 모자란 만큼만 바꾼다
+const shardLack = i => { const r = roster[i]; return r.owned && !isMax(i) ? Math.max(0, lvCost(r.lvl).shards - r.shards) : 0; };
+const fillable = i => Math.min(shardLack(i), Math.floor(gen[HERO_DEFS[i].rarity] / SHARD_X.hero));
+function fillShards(i) {
+  const n = fillable(i);
+  if (n <= 0) return 0;
+  gen[HERO_DEFS[i].rarity] -= n * SHARD_X.hero; roster[i].shards += n;
+  saveLocal();
+  return n;
+}
+// 공용 조각 SHARD_X.up개 → 한 단계 윗등급의 공용 조각 1개. all이면 바꿀 수 있는 만큼 전부
+const upTier = k => RARITY_KEYS[RARITY_KEYS.indexOf(k) + 1];
+function promoteShards(k, all) {
+  const up = upTier(k), n = up ? Math.min(all ? Infinity : 1, Math.floor(gen[k] / SHARD_X.up)) : 0;
+  if (n <= 0) return 0;
+  gen[k] -= n * SHARD_X.up; gen[up] += n;
+  saveLocal();
+  return n;
+}
+// ---- 보급: 고기를 써서 모든 영웅의 공격력 · 체력을 올린다 (SUPPLY)
+const supplyCost = times => { let c = 0; for (let k = 0; k < times && lv.supply + k < SUPPLY.max; k++) c += SUPPLY.cost(lv.supply + k); return c; };
+const supplyPct = n => `${Math.round(n * SUPPLY.per * 1000) / 10}%`;
+function buySupply(times) {
+  if (lv.supply >= SUPPLY.max || res.meat < supplyCost(times)) return 0;
+  const before = lv.supply;
+  res.meat -= supplyCost(times); lv.supply = Math.min(SUPPLY.max, lv.supply + times);
+  bumpRes('meat'); refreshAllHp();
+  for (const h of heroes) if (!h.down) burst(h.x, h.y - 16, '#ffb37a', 10, 140);
+  saveLocal();
+  return lv.supply - before;
 }
 function grantShards(i, n) {
   const r = roster[i];
+  if (r.owned && isMax(i)) { gen[HERO_DEFS[i].rarity] += n; return false; }   // 만렙 영웅의 조각은 공용 조각으로 들어온다
   r.shards += n;
   if (r.owned) return false;
   r.owned = true;
@@ -341,7 +383,7 @@ const PANELS = {
       const used = pub.picked >= 0, left = Math.max(1, PUB.pity - pub.pity), t = Math.max(0, Math.ceil(pub.next - playTime));
       const cards = pub.line.map((i, k) => {
         const d = HERO_DEFS[i], R = RARITY[d.rarity], r = roster[i];
-        return `<div class="hcard${pub.picked === k ? ' picked' : used ? ' faded' : ''}" data-r="${d.rarity}" style="--rc:${R.color}"><span class="face" style="--c:${d.color}"></span><b>${d.name}</b><span class="rar">${R.name}</span><span class="dim">조각 +${R.shards}</span>${r.owned ? `<span class="tag">Lv ${r.lvl}</span>` : '<span class="tag hot">새 영웅</span>'}</div>`;
+        return `<div class="hcard${pub.picked === k ? ' picked' : used ? ' faded' : ''}" data-r="${d.rarity}" style="--rc:${R.color}"><span class="face" style="--c:${d.color}"></span><b>${d.name}</b><span class="rar">${R.name}</span><span class="dim">${r.owned && isMax(i) ? '공용 조각' : '조각'} +${R.shards}</span>${r.owned ? `<span class="tag">Lv ${r.lvl}</span>` : '<span class="tag hot">새 영웅</span>'}</div>`;
       }).join('');
       const pity = pub.line.some(isLegend) ? '이번 카드에 레전더리가 있어요.' : `카드를 ${left}번 더 바꾸면 레전더리가 반드시 나와요.`;
       return head('주점', purse(GOLD_SVG, res.gold, '금화')) +
@@ -371,7 +413,7 @@ const PANELS = {
         const r = roster[i], R = RARITY[d.rarity], c = lvCost(r.lvl), max = r.lvl >= MAX_HERO_LV;
         let cost;
         if (!r.owned) cost = '<span class="dim">주점에서 뽑으면 합류해요</span>';
-        else if (max) cost = '<span class="dim">최고 레벨이에요</span>';
+        else if (max) cost = `<span class="dim">만렙이에요. 이 영웅의 조각은 ${R.name} 공용 조각으로 모여요</span>`;
         else if (r.lvl >= cap) cost = `<span class="dim">용병단 Lv${r.lvl + 1}이 되면 더 올릴 수 있어요</span>`;
         else cost = `<span class="sbar"><i style="width:${Math.min(100, r.shards / c.shards * 100)}%"></i></span><span class="${r.shards >= c.shards ? 'ok' : 'lack'}">조각 ${r.shards}/${c.shards}</span><span class="${res.meat >= c.meat ? 'ok' : 'lack'}">고기 ${c.meat}</span>`;
         // 스킬은 등급이 정한 개수만큼 (노말 1 ~ 레전더리 4). 아직 레벨이 안 된 것은 흐리게
@@ -380,16 +422,32 @@ const PANELS = {
         return `<div class="row${r.owned ? '' : ' off'}${focus === i ? ' focus' : ''}" data-row="${i}" style="--rc:${R.color}"><span class="face" style="--c:${d.color}"></span>` +
           `<div class="rmain"><div class="rline"><b>${d.name}</b><span class="rar">${R.name} · 스킬 ${R.skills}개</span><span class="dim">${d.role}</span></div>` +
           `<div class="dim">공격력 ${Math.round(atkOf(i))} · 체력 ${hpOf(i)}<br>${skills}</div><div class="cost">${cost}</div></div>` +
-          `<div class="rside"><span class="big">Lv ${r.lvl}</span>${r.owned && !max ? `<button class="btn sm primary" type="button" data-act="lv:${i}"${canLevel(i) ? '' : ' disabled'}>레벨업</button>` : ''}${toggle}</div></div>`;
+          `<div class="rside"><span class="big">Lv ${r.lvl}</span>${r.owned && !max ? `<button class="btn sm primary" type="button" data-act="lv:${i}"${canLevel(i) ? '' : ' disabled'}>레벨업</button>` : ''}` +
+          `${fillable(i) > 0 ? `<button class="btn xs ghost" type="button" data-act="fill:${i}">공용 ${fillable(i) * SHARD_X.hero}개 → 조각 ${fillable(i)}</button>` : ''}${toggle}</div></div>`;
       }).join('');
+      // 보급 (고기로 올리는 성장) 과 공용 조각은 영웅 목록 맨 위에
+      const sup = lv.supply, smax = sup >= SUPPLY.max, c1 = supplyCost(1), c10 = supplyCost(10);
+      const supRow = `<div class="row" style="--rc:#ffb37a"><span class="face" style="--c:#c9713f"></span><div class="rmain"><div class="rline"><b>보급</b><span class="rar">${sup}단계</span><span class="dim">고기를 든든히 먹여요</span></div>` +
+        `<div class="dim">모든 영웅의 공격력 · 체력 +${supplyPct(sup)}${smax ? '' : ` → +${supplyPct(sup + 1)}`}</div><div class="cost">${smax ? '<span class="dim">최고 단계예요</span>' : `<span class="${res.meat >= c1 ? 'ok' : 'lack'}">고기 ${c1}</span>`}</div></div>` +
+        `<div class="rside">${smax ? '' : `<button class="btn sm primary" type="button" data-act="sup:1"${res.meat >= c1 ? '' : ' disabled'}>보급</button><button class="btn xs ghost" type="button" data-act="sup:10"${sup + 10 <= SUPPLY.max && res.meat >= c10 ? '' : ' disabled'}>10단계 · 고기 ${c10}</button>`}</div></div>`;
+      const genLines = RARITY_KEYS.filter(k => gen[k] > 0).map(k => {
+        const up = upTier(k), can = up && gen[k] >= SHARD_X.up;
+        return `<div class="cost"><span style="color:${RARITY[k].color}">${RARITY[k].name} ${gen[k]}개</span>` +
+          (up ? `<button class="btn xs ghost" type="button" data-act="up:${k}"${can ? '' : ' disabled'}>${SHARD_X.up}개 → ${RARITY[up].name} 1개</button><button class="btn xs ghost" type="button" data-act="upall:${k}"${can ? '' : ' disabled'}>전부</button>` : '') + '</div>';
+      }).join('');
+      const genRow = genLines ? `<div class="row"><span class="face" style="--c:#8d8a9c"></span><div class="rmain"><div class="rline"><b>공용 조각</b></div>` +
+        `<div class="dim">만렙 영웅의 조각이 등급별로 모여요. ${SHARD_X.hero}개로 같은 등급 영웅의 조각 1개(영웅 칸의 버튼), ${SHARD_X.up}개로 윗등급 공용 조각 1개</div>${genLines}</div><span></span></div>` : '';
       return head('영웅', purse(MEAT_SVG, res.meat, '고기')) +
         `<p class="panel-sub">등급이 높을수록 기본 능력치가 높고 스킬이 하나씩 더 있어요 (노말 1 · 레어 2 · 에픽 3 · 레전더리 4). 스킬은 Lv${SKILL_LV.slice(1).join(' · ')}에 차례로 열려요. 영웅 레벨은 용병단 레벨(지금 ${cap})까지. 출전 ${act}/${squadLimit()}명 (훈련장 2레벨마다 +1).</p>` +
-        `<div class="scroll">${rows}</div><div class="btns"><button class="btn ghost" type="button" data-act="close">닫기</button></div>`;
+        `<div class="scroll">${supRow}${genRow}${rows}</div><div class="btns"><button class="btn ghost" type="button" data-act="close">닫기</button></div>`;
     },
     after(focus) { const el = card.querySelector(`[data-row="${focus}"]`); if (el) el.scrollIntoView({ block: 'nearest' }); },
     act(a, arg) {
-      const i = +arg;
+      const i = a === 'lv' || a === 'act' || a === 'fill' ? +arg : panelArg;   // 영웅 칸의 버튼이 아니면 보던 자리를 그대로 둔다
       if (a === 'lv') levelUpHero(i);
+      else if (a === 'fill') fillShards(i);
+      else if (a === 'sup') buySupply(+arg);
+      else if (a === 'up' || a === 'upall') promoteShards(arg, a === 'upall');
       else if (a === 'act') {
         const r = roster[i], act = roster.filter(o => o.owned && o.active).length;
         if (r.active && act > 1) r.active = false;
@@ -654,7 +712,7 @@ function finishRecruit(slot, mult) {
   const isNew = grantShards(i, n);
   pub.picked = slot; pub.pulls++;
   spinning = false;
-  panelMsg = isNew ? `${d.name} 합류! 조각 +${n}` : `${d.name} 조각 +${n}`;
+  panelMsg = isNew ? `${d.name} 합류! 조각 +${n}` : isMax(i) ? `${d.name}는 만렙 · ${RARITY[d.rarity].name} 공용 조각 +${n}` : `${d.name} 조각 +${n}`;
   if (panel === 'tavern') renderPanel();
   saveLocal();
 }
@@ -788,16 +846,16 @@ $('btn-home').addEventListener('click', () => {   // 귀환 포털: 마을로 �
 // 밸런스를 맞출 때 보는 글: 지금 상태 한 줄 + 안개를 걷을 때마다 적어 둔 기록 (cols가 각 칸의 뜻)
 function playLogText() {
   return JSON.stringify({ game: 'lantern', ver: VERSION, t: Math.round(playTime), kills, region: regionIdx, open: [openCount(), sectors.length - 1], squad: squad.lvl,
-    heroes: roster.map(r => (r.owned ? r.lvl : 0)), shards: roster.map(r => r.shards), lv, prod: { wood: prod.wood.lvl, stone: prod.stone.lvl, gold: prod.gold.lvl, store: prod.store },
+    heroes: roster.map(r => (r.owned ? r.lvl : 0)), shards: roster.map(r => r.shards), pool: { ...gen }, lv, prod: { wood: prod.wood.lvl, stone: prod.stone.lvl, gold: prod.gold.lvl, store: prod.store },
     res: Object.fromEntries(Object.keys(res).map(k => [k, Math.floor(res[k])])), earned: Object.fromEntries(Object.keys(life).map(k => [k, Math.round(life[k])])), pulls: pub.pulls, next: objective().text,
-    cols: 'region,sec,depth,type,t,dt,squad,maxHero,sumHero,owned,forge,barracks,lantern,kills,woodEarned,stoneEarned,goldEarned,meatEarned,xpEarned,pulls', log: plog });
+    cols: 'region,sec,depth,type,t,dt,squad,maxHero,sumHero,owned,forge,barracks,lantern,kills,woodEarned,stoneEarned,goldEarned,meatEarned,xpEarned,pulls,supply', log: plog });
 }
 function serialize() {
   saveRegionState();
   return {
     v: 4, savedAt: Date.now(), region: regionIdx,
     res: { ...res }, life: { ...life }, lv: { ...lv }, paid: JSON.parse(JSON.stringify(paid)),
-    ro: roster.map(r => [r.owned ? 1 : 0, r.lvl, r.shards, r.active ? 1 : 0]),
+    ro: roster.map(r => [r.owned ? 1 : 0, r.lvl, r.shards, r.active ? 1 : 0]), gs: { ...gen },
     pub: { line: pub.line.slice(), picked: pub.picked, pity: pub.pity, left: Math.max(0, Math.round(pub.next - playTime)), pulls: pub.pulls },
     squad: { ...squad }, gear: JSON.parse(JSON.stringify(gear)), prod: JSON.parse(JSON.stringify(prod)), daily: JSON.parse(JSON.stringify(daily)), prog: { ...prog },
     regions: JSON.parse(JSON.stringify(regionData)),
@@ -836,6 +894,10 @@ function restore(s) {
     regionData[0].bd = !!s.bd; regionData[0].bs = !!s.bs;
   } else {
     (s.ro || []).forEach((t, i) => { if (roster[i]) Object.assign(roster[i], { owned: !!t[0] || i < 2, lvl: clamp(t[1] | 0, 1, MAX_HERO_LV), shards: Math.max(0, t[2] | 0), active: !!t[3] }); });
+    // 0.4.2에서는 영웅 레벨이 30까지였다. 만렙(20)을 넘겨 올린 레벨에 쓴 고기와 조각(그 판의 값)은 돌려준다
+    (s.ro || []).forEach((t, i) => { for (let l = MAX_HERO_LV; roster[i] && l < (t[1] | 0); l++) { res.meat += Math.round(30 * Math.pow(1.2, l - 1)); roster[i].shards += 5 + 5 * Math.floor((l - 1) / 10); } });
+    if (s.gs) for (const k of RARITY_KEYS) gen[k] = Math.max(0, s.gs[k] | 0);
+    roster.forEach((r, i) => poolShards(i, true));   // 만렙 영웅이 들고 있던 조각은 공용 조각으로 (이 기능이 생기기 전의 저장)
     readPub(s.pub);
     if (s.squad) squad = { lvl: clamp(s.squad.lvl | 0, 1, SQUAD_MAX_LV), xp: Math.max(0, +s.squad.xp || 0) };
     if (s.gear) { gear = { bag: s.gear.bag || [], eq: s.gear.eq || {}, uid: s.gear.uid | 0 }; }

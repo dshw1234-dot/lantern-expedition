@@ -18,8 +18,9 @@ function recalcGear() {
 const modeBuff = k => (mode && mode.buffs && mode.buffs[k]) || 0;
 const lvMul = i => 1 + 0.1 * (roster[i].lvl - 1);                        // 영웅 레벨 1당 +10%
 const tierPow = i => RARITY[HERO_DEFS[i].rarity].power;                 // 등급이 높을수록 기본 체력 · 공격력이 높다
-const atkOf = i => HERO_DEFS[i].atk * tierPow(i) * lvMul(i) * (1 + 0.2 * lv.forge + ((gearStat.atkMain || 0) + (gearStat.atkPct || 0)) / 100 + modeBuff('atk'));
-const hpOf = i => Math.round(HERO_DEFS[i].hp * tierPow(i) * lvMul(i) * (1 + 0.2 * lv.barracks + ((gearStat.hpMain || 0) + (gearStat.hpPct || 0)) / 100 + modeBuff('hp')));
+const supplyMul = () => 1 + SUPPLY.per * (lv.supply || 0);              // 보급: 모든 영웅의 공격력 · 체력 (다른 보너스와 따로 곱해진다)
+const atkOf = i => HERO_DEFS[i].atk * tierPow(i) * lvMul(i) * supplyMul() * (1 + 0.2 * lv.forge + ((gearStat.atkMain || 0) + (gearStat.atkPct || 0)) / 100 + modeBuff('atk'));
+const hpOf = i => Math.round(HERO_DEFS[i].hp * tierPow(i) * lvMul(i) * supplyMul() * (1 + 0.2 * lv.barracks + ((gearStat.hpMain || 0) + (gearStat.hpPct || 0)) / 100 + modeBuff('hp')));
 // n번째 스킬을 쓸 수 있는가: 등급이 정한 개수 안이고(노말 1 ~ 레전더리 4), 영웅 레벨이 SKILL_LV[n-1] 이상
 const skillOn = (h, n) => n <= RARITY[h.def.rarity].skills && roster[h.idx].lvl >= SKILL_LV[n - 1];
 const skill2On = h => skillOn(h, 2);
@@ -189,7 +190,7 @@ function fxSlash(h, t, r) { fxs.push({ kind: 'slash', x: h.x, y: h.y - 14, a: Ma
 function heroAttack(h, t) {
   h.swing = 0.2;
   const d = h.def;
-  if (t.isHero) { projs.push({ kind: 'spark', x: h.x, y: h.y - 20, t, tx: t.x, ty: t.y, owner: h, spd: 420, heal: d.heal * (1 + 0.1 * lv.forge) * lvMul(h.idx) }); return; }
+  if (t.isHero) { projs.push({ kind: 'spark', x: h.x, y: h.y - 20, t, tx: t.x, ty: t.y, owner: h, spd: 420, heal: d.heal * (1 + 0.1 * lv.forge) * lvMul(h.idx) * supplyMul() }); return; }
   if (t.isNode) {
     if (d.range > 0 && d.proj !== 'bolt') projs.push({ kind: d.proj, x: h.x, y: h.y - 18, t, tx: t.x, ty: t.y, owner: h, spd: 520, node: true });
     else {
@@ -1060,10 +1061,10 @@ const gateLive = g => sectors[g.from].open && !sectors[g.sec].open;   // 지금 
 function openGate(g) {
   const s = sectors[g.sec], rw = gateReward(s.depth);
   // 플레이 기록 한 줄: [지역, 구역, 깊이, 조건, 플레이 시간(초), 이 마법진에 걸린 시간(초), 용병단 Lv, 영웅 최고 Lv, 영웅 Lv 합, 보유 영웅, 대장간, 훈련장, 큰 등불, 처치 수,
-  //                       그때까지 번 나무, 돌, 금화, 고기, 경험치 (총량), 주점 모집 횟수]   ← 뒤의 여섯 칸은 0.4.2부터. 수입을 재서 값과 CURVE를 맞추는 데 쓴다
+  //                       그때까지 번 나무, 돌, 금화, 고기, 경험치 (총량), 주점 모집 횟수, 보급 단계]   ← 번 총량과 모집 횟수는 0.4.2부터, 보급은 0.4.3부터. 수입을 재서 값과 CURVE를 맞추는 데 쓴다
   const lvs = roster.filter(r => r.owned).map(r => r.lvl);
   plog.push([regionIdx, s.id, s.depth, g.req.type, Math.round(playTime), Math.round(playTime - (g.t0 < 0 ? playTime : g.t0)), squad.lvl, Math.max(...lvs), lvs.reduce((a, b) => a + b, 0), lvs.length, lv.forge, lv.barracks, lv.lantern, kills,
-    ...['wood', 'stone', 'gold', 'meat', 'xp'].map(k => Math.round(life[k] || 0)), pub.pulls]);
+    ...['wood', 'stone', 'gold', 'meat', 'xp'].map(k => Math.round(life[k] || 0)), pub.pulls, lv.supply]);
   openSector(s, true);
   res.gold += rw.gold; life.gold += rw.gold; bumpRes('gold'); gainXp(rw.xp);
   toast(`안개가 걷혔어요! 금화 +${rw.gold}${s.way ? ' · 순간이동 표석 발견' : ''}`);

@@ -52,6 +52,7 @@ let nodes = [], dens = [], chests = [], portals = [], monsters = [], heroes = []
 let pickups = [], projs = [], orbs = [], parts = [], texts = [], fxs = [], tokens = [], delayed = [];
 let res, life, lv, paid, kills, maxZone, movedOnce, stoppedOnce;
 let roster;                    // 영웅별 { owned, lvl, shards, active } (HERO_DEFS와 같은 순서)
+let gen;                       // 공용 조각 { normal, rare, epic, legend }: 만렙 영웅의 조각이 등급별로 모인다 (교환 비율은 SHARD_X)
 let pub;                       // 주점 { line: 카드 3장(영웅 번호), picked, pity, next, pulls }
 let squad;                     // 용병단 { lvl, xp }
 let gear;                      // 장비 { bag: [], eq: { 부위: 장비 }, uid }
@@ -469,7 +470,8 @@ function placeSquad(x, y) {
 // ================= 새 게임 · 지역 이동 =================
 const newRegionData = () => REGIONS.map(() => ({ bd: false, bs: false, open: [], g: {} }));
 function newGame() {
-  lv = { lantern: 0, forge: 0, barracks: 0, ship: 0 };
+  lv = { lantern: 0, forge: 0, barracks: 0, ship: 0, supply: 0 };   // supply = 보급 단계 (고기로 올린다. SUPPLY)
+  gen = { normal: 0, rare: 0, epic: 0, legend: 0 };
   roster = HERO_DEFS.map((d, i) => ({ owned: i < 2, lvl: 1, shards: 0, active: i < 2 }));
   squad = { lvl: 1, xp: 0 };
   gear = { bag: [], eq: {}, uid: 0 };

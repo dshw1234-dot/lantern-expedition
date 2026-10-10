@@ -11,16 +11,21 @@ const TILE = 40;                             // 지형 격자 한 칸 (땅 / 산
 const VCELL = { c: 4, r: 11 };               // 마을이 놓이는 칸 (맨 아래 가운데)
 const VC = { x: (VCELL.c + 0.5) * CELL, y: (VCELL.r + 0.5) * CELL };   // 마을 중심
 const VILLAGE_R = 400;                       // 마을 반경. 몬스터는 들어오지 못한다
-const TRUNK_LEN = 36;                        // 본줄기 구역 수 (마을에서 보스까지). 앞 · 가운데 · 뒤 1/3씩이 들판 · 숲 · 폐허
+const TRUNK_LEN = 36;                        // 본줄기 구역 수 (마을에서 보스까지)
+const ZONE_END = [6, 18];                    // 들판은 6번째 구역까지(슬라임), 숲은 18번째까지(늑대 · 골렘), 그 뒤는 폐허(해골 · 망령)
 const BRANCH_CELLS = 16;                     // 곁가지 구역 수 (들르지 않아도 되는 막다른 길)
 const WAY_EVERY = 6;                         // 본줄기 구역 몇 개마다 순간이동 표석을 둘지
-const DEPTH_MUL = 1.05;                      // 구역이 하나 깊어질 때마다 몬스터 체력 · 공격력 배율
-const BOSS_MUL = 5;                          // 지역 보스 배율
+const MON_BASE = 1.4;                        // 모든 필드 몬스터의 체력 · 공격력에 곱하는 기본 배율
+const DEPTH_MUL = 1.08;                      // 구역이 하나 깊어질 때마다 몬스터 체력 · 공격력 배율 (36번째 구역에서 약 15배)
+const BOSS_MUL = 10;                         // 지역 보스 배율
+const CHOP = 10;                             // 채집 한 번에 자원 오브젝트에 주는 피해. 공격력과 상관없이 일정하다
+const NODE_RESPAWN = 60;                     // 다 캔 자원이 다시 자라기까지 (초)
 const ENGAGE = 300;                          // 멈췄을 때 싸움을 거는 거리 (원정대 중심 기준)
 const GATHER = 250;                          // 멈췄을 때 채집하러 가는 거리
 const BOSS_POS = { x: 0, y: 0 };             // 보스 자리. 지역을 만들 때 마지막 구역 한가운데로 정해진다
 const START = { x: VC.x, y: VC.y + 10 };
 const ARENA = { x: WORLD_W + 1500, y: 1800, r: 520 };   // 도전 콘텐츠 전용 경기장 (월드 바깥에 둔다)
+const VERSION = '0.4.1';                     // 설정 창과 플레이 기록에 찍힌다
 const SAVE_KEY = 'lantern-expedition-v1';
 const SETTINGS_KEY = 'lantern-expedition-settings';
 const JR = 56;                               // 조이스틱 반경 (px)
@@ -37,6 +42,8 @@ const OFFLINE_CHEST_MIN = 20;                // 오프라인 동안 이 분마�
 
 // ================= 영웅 =================
 // onHit: 기본 공격에 붙는 상태이상 { st, n: 중첩, p: 확률 }
+// 스킬 수는 등급이 정한다 (RARITY의 skills): 노말 s1 / 레어 s1 · s2 / 에픽 s1 ~ s3 / 레전더리 s1 ~ s4. n번째 스킬은 영웅 레벨 SKILL_LV[n-1]에 열린다
+//   s3 = 특성 (trait: 그 영웅에게만 붙는 능력치. atk · aspd · crit · cdr · ls · dr), s4 = 각성 (cd초마다 dur초 동안 피해 2배)
 // s1: 쿨타임 스킬, s2: 영웅 레벨 SKILL2_LV에 열리는 스킬 (trig: every=기본 공격 n번마다, crit=치명타 시, status=상태이상 대상 적중 시, cd=쿨타임, passive=상시)
 const HERO_DEFS = [
   { id: 'luke', name: '방패 루크', short: '루크', role: '탱커', rarity: 'rare', color: '#5b8def', hp: 260, atk: 10, rate: 1.0, range: 0, r: 16,
@@ -47,41 +54,52 @@ const HERO_DEFS = [
     s2: { name: '급소 사격', trig: 'crit', icd: 3, desc: '치명타가 터지면 체력이 가장 많은 적에게 300% 관통 화살' } },
   { id: 'bella', name: '성수 벨라', short: '벨라', role: '치유', rarity: 'epic', color: '#f1e3a0', hp: 120, atk: 6, rate: 1.0, range: 190, r: 14, proj: 'spark', heal: 18,
     s1: { name: '축복', cd: 12, desc: '체력 60% 아래 동료가 있으면 원정대 전체 35% 회복' },
-    s2: { name: '부활의 기도', trig: 'cd', cd: 20, desc: '쓰러진 동료를 곧바로 일으켜 세움 (체력 50%)' } },
+    s2: { name: '부활의 기도', trig: 'cd', cd: 20, desc: '쓰러진 동료를 곧바로 일으켜 세움 (체력 50%)' },
+    s3: { name: '신성한 손길', trait: { aspd: 0.3 }, desc: '공격 속도 +30% (치유도 그만큼 잦아진다)' } },
   { id: 'mina', name: '쌍검 미나', short: '미나', role: '근접', rarity: 'rare', color: '#ea6b8e', hp: 150, atk: 14, rate: 1.6, range: 0, r: 14, onHit: { st: 'bleed', n: 1, p: 0.5 },
     s1: { name: '회오리', cd: 6, desc: '주변 적 전부에게 220% 피해 + 출혈' },
     s2: { name: '처형', trig: 'status', st: 'bleed', need: 2, icd: 4, desc: '출혈 2중첩 이상인 적을 때리면 350% 추가 피해' } },
   { id: 'lora', name: '불꽃 로라', short: '로라', role: '광역', rarity: 'legend', color: '#ff8b3d', hp: 100, atk: 12, rate: 0.8, range: 210, r: 14, proj: 'fire', splash: 55, onHit: { st: 'burn', n: 1, p: 1 },
     s1: { name: '화염 폭발', cd: 10, desc: '적이 가장 많이 뭉친 곳에 운석 (450% + 화상 2중첩)' },
-    s2: { name: '불꽃 비', trig: 'every', n: 5, desc: '기본 공격 5번마다 불덩이 3개 (120% + 화상)' } },
+    s2: { name: '불꽃 비', trig: 'every', n: 5, desc: '기본 공격 5번마다 불덩이 3개 (120% + 화상)' },
+    s3: { name: '타오르는 마력', trait: { atk: 0.35 }, desc: '공격력 +35%' },
+    s4: { name: '불사조의 날개', cd: 26, dur: 8, desc: '26초마다 8초 동안 각성: 입히는 피해 2배' } },
   { id: 'siu', name: '얼음창 시우', short: '시우', role: '빙결', rarity: 'epic', color: '#7fd6ea', hp: 150, atk: 11, rate: 1.2, range: 0, r: 15, reach: 30, onHit: { st: 'frost', n: 1, p: 1 },
     s1: { name: '서리 폭풍', cd: 11, desc: '주변 적에게 180% 피해 + 동상 2중첩' },
-    s2: { name: '빙창 관통', trig: 'status', st: 'freeze', icd: 3, desc: '얼어붙은 적을 때리면 일직선으로 250% 관통' } },
+    s2: { name: '빙창 관통', trig: 'status', st: 'freeze', icd: 3, desc: '얼어붙은 적을 때리면 일직선으로 250% 관통' },
+    s3: { name: '혹한의 일격', trait: { crit: 0.18 }, desc: '치명타 확률 +18%' } },
   { id: 'ruby', name: '독침 루비', short: '루비', role: '중독', rarity: 'rare', color: '#b56be0', hp: 105, atk: 12, rate: 1.3, range: 220, r: 14, proj: 'dart', onHit: { st: 'poison', n: 1, p: 1 },
     s1: { name: '독 안개', cd: 9, desc: '4초 동안 독구름. 안에 있는 적이 계속 중독' },
     s2: { name: '맹독 폭발', trig: 'status', st: 'poison', need: 6, icd: 5, desc: '중독 6중첩 이상인 적을 터뜨려 중첩당 40% 피해' } },
   { id: 'bori', name: '도끼 보리', short: '보리', role: '돌격', rarity: 'epic', color: '#c98a4b', hp: 210, atk: 13, rate: 0.9, range: 0, r: 17, onHit: { st: 'bleed', n: 1, p: 1 },
     s1: { name: '회전 도끼', cd: 8, desc: '주변 적을 끌어당기며 200% 피해 + 출혈 2중첩' },
-    s2: { name: '피의 갈증', trig: 'passive', desc: '입힌 피해의 15%만큼 체력 회복 (흡혈)' } },
+    s2: { name: '피의 갈증', trig: 'passive', desc: '입힌 피해의 15%만큼 체력 회복 (흡혈)' },
+    s3: { name: '광전사', trait: { atk: 0.3 }, desc: '공격력 +30%' } },
   { id: 'chichi', name: '방울 치치', short: '치치', role: '응원', rarity: 'epic', color: '#f3a8f0', hp: 130, atk: 8, rate: 1.2, range: 200, r: 14, proj: 'note',
     s1: { name: '응원가', cd: 14, desc: '8초 동안 원정대 공격 속도 +30%' },
-    s2: { name: '박자 맞추기', trig: 'every', n: 3, desc: '기본 공격 3번마다 5초 동안 원정대 피해 +20%' } },
+    s2: { name: '박자 맞추기', trig: 'every', n: 3, desc: '기본 공격 3번마다 5초 동안 원정대 피해 +20%' },
+    s3: { name: '앵콜', trait: { cdr: 0.3 }, desc: '스킬 쿨타임 -30% (응원가를 더 자주 부른다)' } },
   { id: 'kai', name: '번개 카이', short: '카이', role: '연쇄', rarity: 'legend', color: '#ffe066', hp: 110, atk: 14, rate: 0.9, range: 230, r: 14, proj: 'bolt', chain: 2,
     s1: { name: '뇌우', cd: 10, desc: '주변 적에게 번개 6번 (각 200%)' },
-    s2: { name: '과부하', trig: 'crit', icd: 4, desc: '치명타가 터지면 적 5명을 잇는 번개 (각 120%)' } },
+    s2: { name: '과부하', trig: 'crit', icd: 4, desc: '치명타가 터지면 적 5명을 잇는 번개 (각 120%)' },
+    s3: { name: '전류 가속', trait: { aspd: 0.35 }, desc: '공격 속도 +35%' },
+    s4: { name: '폭풍의 화신', cd: 26, dur: 8, desc: '26초마다 8초 동안 각성: 입히는 피해 2배' } },
 ];
 // 등급: weight = 주점 카드에 나올 비중, shards = 카드 한 장(×1)이 주는 조각
 const RARITY = {
-  normal: { name: '노말',     color: '#d6d3cc', weight: 40, shards: 8 },
-  rare:   { name: '레어',     color: '#6aaeff', weight: 32, shards: 6 },
-  epic:   { name: '에픽',     color: '#bb86ff', weight: 20, shards: 4 },
-  legend: { name: '레전더리', color: '#ffc24d', weight: 8,  shards: 3 },
-};
+  normal: { name: '노말',     color: '#d6d3cc', weight: 60, shards: 8, power: 1,    skills: 1 },
+  rare:   { name: '레어',     color: '#6aaeff', weight: 28, shards: 6, power: 1.12, skills: 2 },
+  epic:   { name: '에픽',     color: '#bb86ff', weight: 10, shards: 4, power: 1.28, skills: 3 },
+  legend: { name: '레전더리', color: '#ffc24d', weight: 2,  shards: 3, power: 1.5,  skills: 4 },
+};   // power = 기본 체력 · 공격력 배율, skills = 쓸 수 있는 스킬 수 (등급이 하나 오를 때마다 하나씩 더)
+const SKILL_LV = [1, 5, 10, 15];             // n번째 스킬이 열리는 영웅 레벨
 const RARITY_KEYS = Object.keys(RARITY);
 const RARITY_TOTAL = RARITY_KEYS.reduce((a, k) => a + RARITY[k].weight, 0);
 // 주점: cost = 모집 1회 금화, refresh = 카드 바꾸기 금화, auto = 자동 교체 간격(게임 시간 초), pity = 이만큼 바꾸면 레전더리 보장
-const PUB = { cost: 20, refresh: 10, auto: 90, pity: 8 };
-const lvCost = l => ({ shards: l < 5 ? 3 : l < 10 ? 5 : l < 15 ? 8 : 12, meat: 5 * l });
+// 모집 값은 뽑을수록 오른다: base + step × 지금까지 모집한 횟수 (max까지)
+const PUB = { base: 20, step: 2, max: 160, refresh: 10, auto: 90, pity: 25, get cost() { return Math.min(this.max, this.base + this.step * pub.pulls); } };
+// 영웅 레벨업 값: 레벨마다 조각은 1.15배, 고기는 1.2배씩 는다 (Lv1 → 2: 조각 3 · 고기 8, Lv10 → 11: 조각 11 · 고기 41, Lv19 → 20: 조각 37 · 고기 213)
+const lvCost = l => ({ shards: Math.round(3 * Math.pow(1.15, l - 1)), meat: Math.round(8 * Math.pow(1.2, l - 1)) });
 
 // ================= 몬스터 =================
 const MON = {
@@ -103,12 +121,12 @@ const PACKS = {
 const ELITE_P = [0, 0.12, 0.2, 0.25];
 // 자원 오브젝트: "반격하지 않는 적". per만큼 피해를 줄 때마다 자원 1개가 떨어진다
 const NODE_DEFS = {
-  tree:     { r: 20, hp: 50, res: 'wood',  per: 10 },
-  bigtree:  { r: 28, hp: 90, res: 'wood',  per: 10 },
-  deadtree: { r: 18, hp: 40, res: 'wood',  per: 10 },
-  rock:     { r: 19, hp: 60, res: 'stone', per: 12 },
-  crystal:  { r: 20, hp: 80, res: 'stone', per: 8 },
-};
+  tree:     { r: 20, hp: 60,  res: 'wood',  per: 20 },   // 나무 3
+  bigtree:  { r: 28, hp: 100, res: 'wood',  per: 20 },   // 나무 5
+  deadtree: { r: 18, hp: 60,  res: 'wood',  per: 15 },   // 나무 4
+  rock:     { r: 19, hp: 60,  res: 'stone', per: 20 },   // 돌 3
+  crystal:  { r: 20, hp: 80,  res: 'stone', per: 20 },   // 돌 4
+};   // 캐는 속도는 CHOP으로 일정하다. 한 번 다 캐면 NODE_RESPAWN초 뒤에 다시 자란다
 
 // ================= 상태이상 =================
 // dot = 초당 (시전자 공격력 × dot × 중첩) 피해. max 중첩에 닿으면 특수 효과 뒤 초기화
@@ -136,25 +154,34 @@ const REGIONS = [
 const SHIP_COST = { wood: 400, stone: 200, gold: 150 };
 
 // ================= 정화 마법진 (안개를 걷는 조건) =================
-// 본줄기 구역 번호(마을에서 몇 번째인가) → 조건. 처음 몇 개는 게임을 배우는 순서로 정해 두고, 그 뒤로는 GATE_CYCLE을 되풀이한다
-//   pay = 자원 바치기, hunt = 사냥, elite = 길목의 정예, build = 건물 레벨, squad = 용병단 레벨, recruit = 영웅 모집, herolv = 영웅 레벨
-const GATE_SCRIPT = {
-  2: { type: 'pay', cost: { wood: 10 } },
-  3: { type: 'hunt', n: 8 },
-  4: { type: 'build', pad: 'forge', lv: 1 },
-  5: { type: 'recruit' },
-  6: { type: 'herolv', lv: 2 },
-  7: { type: 'elite' },
-  8: { type: 'build', pad: 'lantern', lv: 1 },
+// ---------- 임무 (이정표) ----------
+// 화면 위 목표 칸에 한 번에 하나씩 뜨는 일. 언제든 채울 수 있는 일만 넣는다. 플레이어는 이것을 따라가고,
+// 개발자는 이 순서로 "몇 번째 안개에 닿을 때 무엇을 어디까지 키워 두었는가"를 정한다.
+// 임무의 순서: 안개 하나마다 [지금 할 일 하나(사냥 또는 채집)] → [새로 올라야 할 성장 목표들] → [안개 걷기]
+//   지금 할 일 = 임무를 받은 뒤로 한 것만 센다.  성장 목표 = 도달해야 하는 수준(절대값). 이미 넘었으면 곧바로 완료된다
+// CURVE = 본줄기 t번째 안개를 걷기 전에 갖추게 할 수준. 여기 숫자가 곧 이 게임의 성장 속도다.
+//         플레이 기록(설정 → 플레이 기록 복사)에 안개마다 실제 레벨이 찍히므로, 그것과 견주어 고친다
+const CURVE = {
+  squad: t => (t < 6 ? t : Math.min(SQUAD_MAX_LV - 2, Math.round(1.9 + 0.62 * t))),   // 용병단 레벨: 6 → 6, 12 → 9, 24 → 17, 36 → 24
+  forge: t => Math.min(8, Math.round(0.2 + 0.24 * t)),                                 // 대장간: 4 → 1, 12 → 3, 24 → 6, 33 → 8
+  barracks: t => Math.min(8, Math.round(0.23 * t - 0.2)),                              // 훈련장: 4 → 1, 12 → 3, 24 → 5, 36 → 8
+  lantern: t => Math.min(4, Math.round(0.11 * t)),                                     // 큰 등불: 5 → 1, 14 → 2, 23 → 3, 32 → 4
+  hero: t => Math.max(2, CURVE.squad(t) - 1),                                          // 가장 높은 영웅의 레벨 (영웅 레벨은 용병단 레벨을 넘지 못한다)
+  hero2: t => Math.min(10, Math.round(1 + 0.25 * t)),                                  // 두 번째로 높은 영웅의 레벨: 18 → 6, 24 → 7, 36 → 10 (조각이 드문 등급까지 키우게 한다)
+  owned: t => Math.min(7, 2 + Math.round(0.17 * (t - 2))),                             // 보유 영웅: 5 → 3, 11 → 4, 17 → 5, 23 → 6, 29 → 7
 };
-const GATE_CYCLE = ['pay', 'hunt', 'squad', 'build', 'elite', 'herolv'];
-const GATE_BUILDS = [['forge', 2], ['barracks', 1], ['forge', 3], ['lantern', 2], ['barracks', 2], ['forge', 4], ['barracks', 3], ['lantern', 3]];   // build 조건이 나올 때마다 차례로
-const GATE_HEROLV = [4, 6, 8, 10, 12];                                    // herolv 조건이 나올 때마다 차례로
-const gatePay = (t, k) => (k % 3 === 2 ? { gold: 10 * t } : { wood: 5 * Math.round(2.4 * t), stone: 5 * Math.round(1.2 * t) });   // t = 구역 번호, k = 몇 번째 pay인가
-const gateHunt = t => Math.min(30, 8 + t);
-const gateSquad = t => Math.min(SQUAD_MAX_LV - 2, 2 + Math.floor(t * 0.45));
+const MIS_HERO_EVERY = 3;                                                              // 영웅 레벨 임무는 안개 몇 개마다 (한 번은 한 명, 한 번은 두 명)
+const misHunt = t => Math.min(80, 10 + 2 * t);
+const misGather = (t, k) => (k % 2 ? { res: 'stone', n: 6 + 3 * t } : { res: 'wood', n: 10 + 4 * t });   // k = 몇 번째 채집 임무인가
+const misReward = t => ({ gold: 5 + t });                                              // 임무를 끝낼 때마다
+const fogCost = t => (t % 4 === 0 ? { wood: 6 + 2 * t, stone: 2 * t } : { wood: 6 + 2 * t });   // 본줄기 안개를 걷는 값 (정화 마법진에 바친다)
+// ---------- 곁가지의 마법진 (들르지 않아도 되는 길): 자원 바치기 · 사냥 · 길목의 정예가 번갈아 나온다 ----------
+const sidePay = t => ({ wood: 10 + 3 * t, stone: 5 + Math.round(1.5 * t) });
+const sideHunt = t => Math.min(50, 6 + Math.round(1.2 * t));
+const HUNT_CYCLES = 8;                                                    // 드문 몬스터가 대상이면, 소굴이 이만큼 다시 찰 동안 잡을 수 있는 수로 줄인다
 const GUARD = { 1: 'bigslime', 2: 'golem', 3: 'skeleton' };              // 길목을 지키는 정예 (구역 종류별)
-const gateReward = depth => ({ gold: 10 + 4 * depth, xp: 6 + 2 * depth });   // 안개를 걷으면 받는 보상
+const GUARD_MUL = 2.2;                                                    // 길목의 정예는 그 구역 몬스터보다 이만큼 더 강하다
+const gateReward = depth => ({ gold: 5 + 2 * depth, xp: 6 + 2 * depth });    // 안개를 걷으면 받는 보상
 
 // ================= 마을 발판 =================
 // kind: pay = 위에 멈추면 자원을 넣어 강화, panel = 멈추면 창이 열림, dock = 선착장 (보스 처치 뒤 배 건조 → 항해 창)
@@ -174,9 +201,10 @@ const BUILDINGS = PADS.map(p => ({ isBuilding: true, pad: p, x: p.x, y: p.y - 56
 function padCostFor(id, n) {
   const g = (base, k) => Math.round(base * Math.pow(k, n));
   switch (id) {
-    case 'lantern':  return { wood: g(25, 1.9), stone: g(25, 1.9), gold: g(20, 1.9) };
-    case 'forge':    return { wood: g(10, 1.6), stone: g(6, 1.6) };
-    case 'barracks': return { wood: g(8, 1.6), stone: g(10, 1.6) };
+    // 레벨마다 대장간 · 훈련장은 1.8배, 큰 등불은 2.2배씩 비싸진다 (대장간 Lv0 → 1: 나무 5, Lv7 → 8: 나무 306, Lv9 → 10: 나무 992)
+    case 'lantern':  return { wood: g(12, 2.2), stone: g(12, 2.2), gold: g(10, 2.2) };
+    case 'forge':    return { wood: g(5, 1.8), stone: g(3, 1.8) };
+    case 'barracks': return { wood: g(4, 1.8), stone: g(5, 1.8) };
   }
   return null;
 }

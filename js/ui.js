@@ -194,7 +194,8 @@ function levelUpHero(i) {
   r.shards -= c.shards; res.meat -= c.meat; r.lvl++;
   bumpRes('meat');
   for (const h of heroes) if (h.idx === i) { refreshHp(h); burst(h.x, h.y - 16, '#ffe08a', 18, 160); }
-  toast(r.lvl === SKILL2_LV ? `${HERO_DEFS[i].name} Lv${r.lvl} · 두 번째 스킬 「${HERO_DEFS[i].s2.name}」 해금!` : `${HERO_DEFS[i].name} Lv${r.lvl}`);
+  const sk = SKILL_LV.indexOf(r.lvl), sd = HERO_DEFS[i], newSkill = sk > 0 && sk < RARITY[sd.rarity].skills ? [sd.s1, sd.s2, sd.s3, sd.s4][sk] : null;   // 이 레벨에 새로 열리는 스킬
+  toast(newSkill ? `${sd.name} Lv${r.lvl} · 새 스킬 「${newSkill.name}」 해금!` : `${sd.name} Lv${r.lvl}`);
   saveLocal();
 }
 function grantShards(i, n) {
@@ -319,7 +320,7 @@ const GUIDE = [
       gSlime(196, 92) + gSlime(236, 120) +
       '<path d="M200 60 q20 -14 40 0 m-9 -7 l9 7 l-10 4" stroke="#d6cab3" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/>', '#2f4a36') },
   { title: '안개를 걷으며 나아가요',
-    body: `길은 보랏빛 안개로 막혀 있어요. 마법진 팻말에 적힌 일을 해내고 그 위에 멈춰 서면 안개가 걷혀요. 왼쪽 위 「목표」와 주황색 화살표가 다음 할 일을 알려 줘요. 길 끝의 ${REGIONS[0].boss}를 물리치면 바다 건너 새 지역이 열려요.`,
+    body: `왼쪽 위 「목표」에 뜨는 임무를 하나씩 해내세요. 주황색 화살표가 갈 곳을 가리켜요. 임무를 따라가다 보면 길을 막은 보랏빛 안개를 걷을 차례가 오고, 정화 마법진 위에 멈춰 서서 나무를 바치면 걷혀요. 길 끝의 ${REGIONS[0].boss}를 물리치면 바다 건너 새 지역이 열려요.`,
     fig: () => gScene('안개에 막힌 길과 그 앞의 정화 마법진 그림',
       '<path d="M122 108 Q158 118 190 108" stroke="#ffb44d" stroke-width="2.5" fill="none" stroke-dasharray="3 7" stroke-linecap="round" class="g-dash"/>' +
       '<g transform="translate(256 50)"><circle r="22" fill="#4b3a8f" stroke="rgba(0,0,0,.4)" stroke-width="1.5"/><path d="M-15 -17 l4 -13 l5 9 l6 -11 l6 11 l5 -9 l4 13 Z" fill="#ffcf4a"/><circle cx="-7" cy="-2" r="3" fill="#ff5ad1"/><circle cx="7" cy="-2" r="3" fill="#ff5ad1"/></g>' +
@@ -370,15 +371,16 @@ const PANELS = {
         else if (max) cost = '<span class="dim">최고 레벨이에요</span>';
         else if (r.lvl >= cap) cost = `<span class="dim">용병단 Lv${r.lvl + 1}이 되면 더 올릴 수 있어요</span>`;
         else cost = `<span class="sbar"><i style="width:${Math.min(100, r.shards / c.shards * 100)}%"></i></span><span class="${r.shards >= c.shards ? 'ok' : 'lack'}">조각 ${r.shards}/${c.shards}</span><span class="${res.meat >= c.meat ? 'ok' : 'lack'}">고기 ${c.meat}</span>`;
-        const s2 = r.lvl >= SKILL2_LV ? `${d.s2.name}: ${d.s2.desc}` : `<span style="opacity:.6">${d.s2.name} (Lv${SKILL2_LV}): ${d.s2.desc}</span>`;
+        // 스킬은 등급이 정한 개수만큼 (노말 1 ~ 레전더리 4). 아직 레벨이 안 된 것은 흐리게
+        const skills = [d.s1, d.s2, d.s3, d.s4].slice(0, R.skills).map((s, k) => (r.lvl >= SKILL_LV[k] ? `${s.name}: ${s.desc}` : `<span style="opacity:.6">${s.name} (Lv${SKILL_LV[k]}): ${s.desc}</span>`)).join('<br>');
         const toggle = r.owned ? `<button class="btn xs ${r.active ? 'primary' : 'ghost'}" type="button" data-act="act:${i}"${mode || (!r.active && act >= squadLimit()) || (r.active && act <= 1) ? ' disabled' : ''}>${r.active ? '출전 중' : '대기'}</button>` : '';
         return `<div class="row${r.owned ? '' : ' off'}${focus === i ? ' focus' : ''}" data-row="${i}" style="--rc:${R.color}"><span class="face" style="--c:${d.color}"></span>` +
-          `<div class="rmain"><div class="rline"><b>${d.name}</b><span class="rar">${R.name}</span><span class="dim">${d.role}</span></div>` +
-          `<div class="dim">공격력 ${Math.round(atkOf(i))} · 체력 ${hpOf(i)}<br>${d.s1.name}: ${d.s1.desc}<br>${s2}</div><div class="cost">${cost}</div></div>` +
+          `<div class="rmain"><div class="rline"><b>${d.name}</b><span class="rar">${R.name} · 스킬 ${R.skills}개</span><span class="dim">${d.role}</span></div>` +
+          `<div class="dim">공격력 ${Math.round(atkOf(i))} · 체력 ${hpOf(i)}<br>${skills}</div><div class="cost">${cost}</div></div>` +
           `<div class="rside"><span class="big">Lv ${r.lvl}</span>${r.owned && !max ? `<button class="btn sm primary" type="button" data-act="lv:${i}"${canLevel(i) ? '' : ' disabled'}>레벨업</button>` : ''}${toggle}</div></div>`;
       }).join('');
       return head('영웅', purse(MEAT_SVG, res.meat, '고기')) +
-        `<p class="panel-sub">레벨마다 공격력·체력 +10%, Lv${SKILL2_LV}에 두 번째 스킬. 영웅 레벨은 용병단 레벨(지금 ${cap})까지 올릴 수 있어요. 출전 ${act}/${squadLimit()}명 (훈련장 2레벨마다 +1).</p>` +
+        `<p class="panel-sub">등급이 높을수록 기본 능력치가 높고 스킬이 하나씩 더 있어요 (노말 1 · 레어 2 · 에픽 3 · 레전더리 4). 스킬은 Lv${SKILL_LV.slice(1).join(' · ')}에 차례로 열려요. 영웅 레벨은 용병단 레벨(지금 ${cap})까지. 출전 ${act}/${squadLimit()}명 (훈련장 2레벨마다 +1).</p>` +
         `<div class="scroll">${rows}</div><div class="btns"><button class="btn ghost" type="button" data-act="close">닫기</button></div>`;
     },
     after(focus) { const el = card.querySelector(`[data-row="${focus}"]`); if (el) el.scrollIntoView({ block: 'nearest' }); },
@@ -570,11 +572,18 @@ const PANELS = {
       const sw = (k, title, desc) => `<div class="row"><span></span><div class="rmain"><b style="font:15px/1.3 var(--font-display)">${title}</b><span class="dim">${desc}</span></div><button class="switch" type="button" role="switch" aria-checked="${settings[k]}" aria-label="${title}" data-act="tog:${k}"></button></div>`;
       return head('설정') +
         `<div class="scroll">${sw('dmgText', '데미지 숫자', '맞을 때 뜨는 숫자를 보여 줘요')}${sw('effects', '효과', '파편 · 화면 흔들림을 보여 줘요. 끄면 가벼워져요')}${sw('powerSave', '절전 모드', '3분 동안 손대지 않으면 화면을 어둡게 하고 덜 그려요')}` +
-        '<div class="row"><span></span><div class="rmain"><b style="font:15px/1.3 var(--font-display)">게임 방법</b><span class="dim">조작법과 목표를 다시 보고, 도움말도 처음부터 다시 받아요</span></div><button class="btn xs ghost" type="button" data-act="guide">보기</button></div></div>' +
-        '<p class="small">설정은 이 기기에만 저장돼요.</p><div class="btns"><button class="btn ghost" type="button" data-act="close">닫기</button></div>';
+        '<div class="row"><span></span><div class="rmain"><b style="font:15px/1.3 var(--font-display)">게임 방법</b><span class="dim">조작법과 목표를 다시 보고, 도움말도 처음부터 다시 받아요</span></div><button class="btn xs ghost" type="button" data-act="guide">보기</button></div>' +
+        `<div class="row"><span></span><div class="rmain"><b style="font:15px/1.3 var(--font-display)">플레이 기록</b><span class="dim">안개를 걷을 때마다 걸린 시간과 그때의 레벨을 적어 둬요 (지금 ${plog.length}줄). 복사해서 Claude에게 붙여 주면 밸런스를 맞추는 근거가 돼요</span></div><button class="btn xs ghost" type="button" data-act="log">복사</button></div></div>` +
+        (panelMsg ? (panelMsg[0] === '{' ? `<textarea class="logbox" readonly aria-label="플레이 기록">${panelMsg.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</textarea><p class="small">복사가 막혀 있어요. 위 글을 길게 눌러 전체 선택한 뒤 복사해 주세요.</p>` : `<p class="result">${panelMsg}</p>`) : '') +
+        `<p class="small">설정은 이 기기에만 저장돼요. · 판 ${VERSION}</p><div class="btns"><button class="btn ghost" type="button" data-act="close">닫기</button></div>`;
     },
     act(a, k) {
       if (a === 'guide') { settings.tips = {}; saveSettings(); closePanel(true); openPanel('guide', 0); return; }
+      if (a === 'log') {
+        const text = playLogText(), done = ok => { if (panel !== 'settings') return; panelMsg = ok ? `플레이 기록을 복사했어요. Claude와의 대화에 붙여 넣어 주세요.` : text; renderPanel(); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => done(true), () => done(false)); else done(false);
+        return;
+      }
       if (a !== 'tog') return;
       settings[k] = !settings[k]; saveSettings(); renderPanel();
     },
@@ -661,8 +670,10 @@ function reqHelp(g) {   // 목표 칸의 둘째 줄: 조건을 어떻게 채우�
     case 'elite': return '마법진 앞을 지키는 금빛 테두리 몬스터예요';
     case 'build': return `지금 Lv${lv[q.pad]} · 마을의 ${PAD[q.pad].name} 발판 위에 멈춰 서요`;
     case 'squad': return `지금 Lv${squad.lvl} · 몬스터를 잡으면 올라요`;
-    case 'recruit': return `금화 ${Math.min(Math.floor(res.gold), PUB.cost)}/${PUB.cost} · 마을의 주점 발판에 멈추면 열려요`;
-    case 'herolv': return squad.lvl < q.lv ? `용병단 Lv${q.lv}가 되면 올릴 수 있어요. 몬스터를 더 잡아요` : '화면 아래 영웅 칸을 눌러요 · 고기와 조각이 필요해요';
+    case 'recruit': return `지금 ${ownedN()}명 · 마을의 주점에서 아직 없는 영웅의 카드를 뽑아요 (금화 ${PUB.cost})`;
+    case 'herolv': return squad.lvl < q.lv ? `용병단 Lv${q.lv}가 되어야 올릴 수 있어요. 몬스터를 더 잡아요` : `${reqProg(g)} · 화면 아래 영웅 칸을 눌러요. 고기와 조각이 필요해요`;
+    case 'gather': return `${Math.min(g.n, q.n)}/${q.n} · 멈춰 서면 영웅들이 알아서 캐요`;
+    case 'fog': return reqHelp(sectors[q.sec].gate);   // 그 마법진에 바칠 값
   }
   return '';
 }
@@ -676,16 +687,14 @@ function reqTarget(g) {   // 조건을 채우러 가야 할 곳 (화살표가 �
     case 'squad': return nearestDen() || g;
     case 'recruit': return res.gold >= PUB.cost ? PAD.tavern : nearestDen() || PAD.tavern;
     case 'herolv': return squad.lvl < q.lv ? nearestDen() : null;
+    case 'gather': return nearestNode(q.res);
+    case 'fog': return reqTarget(sectors[q.sec].gate);
   }
   return g;
 }
 function objective() {
-  const trunk = sectors.filter(s => s.trunk && s.id), next = trunk.find(s => !s.open);
-  if (next) {
-    const g = next.gate, ok = reqDone(g);
-    return { key: 'g' + g.sec, text: `안개 걷기 ${trunk.filter(s => s.open).length}/${trunk.length} · ${reqText(g)}`, prog: ok ? '조건을 채웠어요. 정화 마법진 위에 멈춰 서세요' : reqHelp(g),
-      target: ok ? g : reqTarget(g), nudge: !ok && g.req.type === 'herolv' && squad.lvl >= g.req.lv };
-  }
+  const m = curMission();
+  if (m) return { key: 'm' + mIdx, text: `임무 ${mIdx + 1}/${missions.length} · ${reqText(m)}`, prog: reqHelp(m), target: reqTarget(m), nudge: m.req.type === 'herolv' && squad.lvl >= m.req.lv };
   if (!RD().bd) return { key: 'boss', text: `${REG().boss} 물리치기`, prog: bossPct() || '길 끝에서 기다리고 있어요', target: boss() || BOSS_POS };
   if (regionIdx === 0 && !lv.ship) return { key: 'ship', text: '선착장에서 배 만들기', prog: `나무 ${SHIP_COST.wood} · 돌 ${SHIP_COST.stone} · 금화 ${SHIP_COST.gold}. 생산소와 보물상자가 도와줘요`, target: PAD.dock };
   if (prog.seen < 2) return { key: 'sail', text: `배를 타고 ${REGIONS[1].name}로 항해`, prog: '선착장에 멈추면 항해 창이 열려요', target: PAD.dock };
@@ -766,6 +775,12 @@ $('btn-home').addEventListener('click', () => {   // 귀환 포털: 마을로 �
 });
 
 // ================= 저장 · 불러오기 =================
+// 밸런스를 맞출 때 보는 글: 지금 상태 한 줄 + 안개를 걷을 때마다 적어 둔 기록 (cols가 각 칸의 뜻)
+function playLogText() {
+  return JSON.stringify({ game: 'lantern', ver: VERSION, t: Math.round(playTime), kills, region: regionIdx, open: [openCount(), sectors.length - 1], squad: squad.lvl,
+    heroes: roster.map(r => (r.owned ? r.lvl : 0)), lv, res: Object.fromEntries(Object.keys(res).map(k => [k, Math.floor(res[k])])), next: objective().text,
+    cols: 'region,sec,depth,type,t,dt,squad,maxHero,sumHero,owned,forge,barracks,lantern,kills', log: plog });
+}
 function serialize() {
   saveRegionState();
   return {
@@ -775,7 +790,7 @@ function serialize() {
     pub: { line: pub.line.slice(), picked: pub.picked, pity: pub.pity, left: Math.max(0, Math.round(pub.next - playTime)), pulls: pub.pulls },
     squad: { ...squad }, gear: JSON.parse(JSON.stringify(gear)), prod: JSON.parse(JSON.stringify(prod)), daily: JSON.parse(JSON.stringify(daily)), prog: { ...prog },
     regions: JSON.parse(JSON.stringify(regionData)),
-    mz: maxZone, k: kills, t: Math.round(playTime),
+    mz: maxZone, k: kills, t: Math.round(playTime), log: plog,
   };
 }
 // 예전 판(v1 ~ v3)의 저장도 읽는다. v4에서 지도가 통째로 바뀌었기 때문에,
@@ -787,6 +802,7 @@ function restore(s) {
   for (const k in lv) if (s.lv && s.lv[k] != null) lv[k] = s.lv[k] | 0;
   for (const id in s.paid) if (paid[id]) Object.assign(paid[id], s.paid[id]);
   kills = s.k | 0; playTime = +s.t || 0; maxZone = s.mz | 0;
+  plog = Array.isArray(s.log) ? s.log : [];
   let pubLeft = null;
   const readPub = sp => {
     if (!sp) return;
@@ -816,7 +832,7 @@ function restore(s) {
     const v4 = s.v >= 4;   // 상자 번호와 구역 번호는 v4의 지도에서만 뜻이 있다
     if (s.daily) daily = Object.assign(daily, s.daily, { opened: REGIONS.map((_, r) => (v4 && s.daily.opened && s.daily.opened[r]) || []) });
     if (s.prog) Object.assign(prog, s.prog);
-    if (Array.isArray(s.regions)) s.regions.forEach((r, i) => { if (regionData[i]) regionData[i] = { bd: !!r.bd, bs: !!r.bs, open: v4 && Array.isArray(r.open) ? r.open.map(n => n | 0) : [], g: (v4 && r.g) || {} }; });
+    if (Array.isArray(s.regions)) s.regions.forEach((r, i) => { if (regionData[i]) regionData[i] = { bd: !!r.bd, bs: !!r.bs, open: v4 && Array.isArray(r.open) ? r.open.map(n => n | 0) : [], g: (v4 && r.g) || {}, mi: v4 && r.mi != null ? r.mi | 0 : undefined, mn: v4 ? r.mn | 0 : 0 }; });
     regionIdx = clamp(s.region | 0, 0, REGIONS.length - 1);
   }
   let act = 0;   // 출전 인원 한도를 넘지 않게
@@ -900,7 +916,7 @@ function boot(data) {
   resize();
   newGame();
   if (document.fonts && document.fonts.load) {   // 캔버스 글자에 쓰는 한글 조각을 미리 받아 둔다
-    const words = [...PADS.map(p => p.name + p.effect), ...HERO_DEFS.map(d => d.name + d.s1.name + d.s2.name), Object.values(MON).map(m => m.name).join(''), '정화 마법진 자원 바치기 멈춰 서면 안개가 걷혀요 마리 처치 길목을 지키는 주점에서 영웅 한 명을 로 지금 표석 들판 숲 폐허 마을 ✓', '모집 최고 레벨 부활 쓰러짐 정예 던전 상자 수호상 기절 과다 출혈 폭발 결빙 회피 원정대가 모두 쓰러졌습니다 마을 등불 아래로 돌아갑니다 배 만들기 멈추면 항해 수확할 자원 개 부위 장착 웨이브 층 우두머리 등장 기다려요 용병단 부터 오늘 번 남음 0123456789m+!%'].join('');
+    const words = [...PADS.map(p => p.name + p.effect), ...HERO_DEFS.map(d => d.name + d.s1.name + d.s2.name + (d.s4 ? d.s4.name : '')), Object.values(MON).map(m => m.name).join(''), '정화 마법진 자원 바치기 멈춰 서면 안개가 걷혀요 마리 처치 길목을 지키는 주점에서 영웅 한 명을 로 지금 표석 들판 숲 폐허 마을 ✓', '모집 최고 레벨 부활 쓰러짐 정예 던전 상자 수호상 기절 과다 출혈 폭발 결빙 회피 원정대가 모두 쓰러졌습니다 마을 등불 아래로 돌아갑니다 배 만들기 멈추면 항해 수확할 자원 개 부위 장착 웨이브 층 우두머리 등장 기다려요 용병단 부터 오늘 번 남음 0123456789m+!%'].join('');
     document.fonts.load(`16px ${FONT}`, words).catch(() => {});
   }
   let resumed = false;

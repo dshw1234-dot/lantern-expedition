@@ -17,23 +17,27 @@ function recalcGear() {
 }
 const modeBuff = k => (mode && mode.buffs && mode.buffs[k]) || 0;
 const lvMul = i => 1 + 0.1 * (roster[i].lvl - 1);                        // 영웅 레벨 1당 +10%
-const atkOf = i => HERO_DEFS[i].atk * lvMul(i) * (1 + 0.2 * lv.forge + ((gearStat.atkMain || 0) + (gearStat.atkPct || 0)) / 100 + modeBuff('atk'));
-const hpOf = i => Math.round(HERO_DEFS[i].hp * lvMul(i) * (1 + 0.2 * lv.barracks + ((gearStat.hpMain || 0) + (gearStat.hpPct || 0)) / 100 + modeBuff('hp')));
-const skill2On = h => roster[h.idx].lvl >= SKILL2_LV;
+const tierPow = i => RARITY[HERO_DEFS[i].rarity].power;                 // 등급이 높을수록 기본 체력 · 공격력이 높다
+const atkOf = i => HERO_DEFS[i].atk * tierPow(i) * lvMul(i) * (1 + 0.2 * lv.forge + ((gearStat.atkMain || 0) + (gearStat.atkPct || 0)) / 100 + modeBuff('atk'));
+const hpOf = i => Math.round(HERO_DEFS[i].hp * tierPow(i) * lvMul(i) * (1 + 0.2 * lv.barracks + ((gearStat.hpMain || 0) + (gearStat.hpPct || 0)) / 100 + modeBuff('hp')));
+// n번째 스킬을 쓸 수 있는가: 등급이 정한 개수 안이고(노말 1 ~ 레전더리 4), 영웅 레벨이 SKILL_LV[n-1] 이상
+const skillOn = (h, n) => n <= RARITY[h.def.rarity].skills && roster[h.idx].lvl >= SKILL_LV[n - 1];
+const skill2On = h => skillOn(h, 2);
+const trait = (h, k) => (h && h.def.s3 && skillOn(h, 3) && h.def.s3.trait[k]) || 0;   // 세 번째 스킬(특성)이 그 영웅에게 주는 능력치
 function stat(h, k) {
   const g = s => (gearStat[s] || 0) / 100;
   switch (k) {
-    case 'crit':    return Math.min(0.75, 0.05 + g('crit') + modeBuff('crit'));
+    case 'crit':    return Math.min(0.75, 0.05 + g('crit') + modeBuff('crit') + trait(h, 'crit'));
     case 'critDmg': return 1.5 + g('critDmg');
-    case 'aspd':    return Math.min(2.5, 1 + g('aspd') + modeBuff('aspd') + (buffs.aspdT > 0 ? buffs.aspd : 0));
+    case 'aspd':    return Math.min(2.5, 1 + g('aspd') + modeBuff('aspd') + (buffs.aspdT > 0 ? buffs.aspd : 0) + trait(h, 'aspd'));
     case 'dodge':   return Math.min(0.5, g('dodge'));
-    case 'dr':      return Math.min(0.6, g('dr'));
-    case 'ls':      return Math.min(0.35, g('ls') + modeBuff('ls') + (h && h.def.id === 'bori' && skill2On(h) ? 0.15 : 0));
-    case 'cdr':     return Math.min(0.45, g('cdr') + modeBuff('cdr'));
+    case 'dr':      return Math.min(0.6, g('dr') + trait(h, 'dr'));
+    case 'ls':      return Math.min(0.35, g('ls') + modeBuff('ls') + (h && h.def.id === 'bori' && skill2On(h) ? 0.15 : 0) + trait(h, 'ls'));
+    case 'cdr':     return Math.min(0.6, g('cdr') + modeBuff('cdr') + trait(h, 'cdr'));
   }
   return 0;
 }
-const heroAtk = h => atkOf(h.idx) * (1 + (buffs.atkT > 0 ? buffs.atk : 0));
+const heroAtk = h => atkOf(h.idx) * (1 + (buffs.atkT > 0 ? buffs.atk : 0)) * (1 + trait(h, 'atk')) * (h.awakeT > 0 ? 2 : 1);   // 각성(네 번째 스킬) 중에는 2배
 const heroMaxHp = h => hpOf(h.idx);
 function refreshHp(h) { const k = h.maxHp ? h.hp / h.maxHp : 1; h.maxHp = heroMaxHp(h); if (!h.down) h.hp = Math.max(1, h.maxHp * k); }
 function refreshAllHp() { for (const h of heroes) refreshHp(h); }
@@ -165,6 +169,14 @@ function updHero(h, dt, i, auto) {
   const cdr = 1 - stat(h, 'cdr');
   if (h.skillCd <= 0 && cast1(h)) h.skillCd = h.def.s1.cd * cdr;
   if (h.def.s2.trig === 'cd' && skill2On(h) && h.s2cd <= 0 && cast2(h, null)) h.s2cd = h.def.s2.cd * cdr;
+  if (h.awakeT > 0) h.awakeT -= dt;
+  if (h.def.s4 && skillOn(h, 4)) {   // 네 번째 스킬(각성): 싸우는 중에 쿨타임이 차면 켜진다
+    h.s4cd -= dt;
+    if (h.s4cd <= 0 && h.target && h.target.isMon) {
+      h.s4cd = h.def.s4.cd * cdr; h.awakeT = h.def.s4.dur;
+      skillText(h, h.def.s4.name); fxs.push({ kind: 'ring', x: h.x, y: h.y, r: 70, t: 0, T: 0.5, c: h.def.color });
+    }
+  }
   const t = h.target;
   if (!t) { h.walk = moveToward(h, s.x, s.y, 170, dt, 3); return; }
   const reach = h.def.range > 0 ? h.def.range : h.def.r + targetR(t) + 6 + (h.def.reach || 0);
@@ -183,7 +195,7 @@ function heroAttack(h, t) {
     else {
       if (d.proj === 'bolt') fxs.push({ kind: 'bolt', x: h.x, y: h.y - 20, x2: t.x, y2: t.y - 14, t: 0, T: 0.2, c: '#fff3a0', seed: Math.random() });
       else fxSlash(h, t);
-      damageNode(t, heroAtk(h));
+      damageNode(t, CHOP);
     }
     return;
   }
@@ -552,7 +564,7 @@ function killMonster(m) {
   const field = !(m.arena && mode), den = m.den, depth = (den && den.depth) || 1;
   const loot = field ? REG().loot * Math.sqrt(m.mul / REG().mul) : mode.loot, el = m.elite ? 3 : 1;
   const drop = (type, n) => { for (let left = n; left > 0; left -= 10) spawnPickup(type, m.x, m.y - 10, Math.min(10, left)); };
-  drop('gold', Math.round(randi(m.d.gold[0], m.d.gold[1]) * loot * el));
+  drop('gold', Math.round(randi(m.d.gold[0], m.d.gold[1]) * (field ? REG().loot : loot) * el));   // 금화는 깊이에 따라 늘지 않는다 (고기만 는다)
   drop('meat', Math.round(randi(m.d.meat[0], m.d.meat[1]) * loot * el));
   gainXp(m.d.xp * (m.elite ? 4 : 1) * (camp ? 2 : 1) * (field ? Math.pow(m.mul, 0.6) : mode.xpMul));
   if (Math.random() < (m.elite || m.d.boss ? BOOK_P.elite : BOOK_P.normal)) spawnPickup(pick(Object.keys(BOOKS)), m.x, m.y - 10);
@@ -562,6 +574,8 @@ function killMonster(m) {
   if (field && !m.summoned) {
     // 정화 마법진의 사냥 조건: 그 마법진까지 갈 수 있게 된 뒤에 잡은 것만 센다
     for (const g of gates) if (g.req.type === 'hunt' && g.req.mon === m.type && g.n < g.req.n && sectors[g.from].open && !sectors[g.sec].open) g.n++;
+    const mi = missions[mIdx];
+    if (mi && mi.type === 'hunt' && mi.mon === m.type) mN++;   // 임무의 사냥
     if (den && den.guard && m.elite) { den.guard.n = 1; toast('길목을 지키던 정예를 물리쳤어요. 마법진 위에 멈춰 서세요'); }
   }
   if (den && !m.summoned && !m.arena) {
@@ -695,6 +709,8 @@ function collectPickup(p) {
   if (p.type === 'gear') { addItem(p.item); return; }
   if (BOOKS[p.type]) { useBook(p.type); return; }
   res[p.type] += p.value; life[p.type] += p.value; bumpRes(p.type);
+  const mi = missions[mIdx];
+  if (mi && mi.type === 'gather' && mi.res === p.type) mN += p.value;   // 임무의 채집
 }
 function useBook(type) {
   const B = BOOKS[type];
@@ -735,13 +751,13 @@ function updPickups(dt) {
 function damageNode(n, dmg) {
   if (n.hp <= 0) return;
   n.hp -= dmg; n.shake = 0.15; n.hitT = 1.5; n.acc += dmg;
-  const bonus = 1 + 0.12 * Math.max(0, heroes.filter(h => !h.down).length - 1);   // 인원이 많을수록 더 많이 캔다
-  const give = () => { spawnPickup(n.nd.res, n.x, n.y - 10, 1); if (Math.random() < bonus - 1) spawnPickup(n.nd.res, n.x, n.y - 10, 1); };
+  // 캐는 양은 자원 오브젝트마다 정해져 있다 (공격력 · 인원과 상관없다. 인원이 많으면 더 빨리 캘 뿐이고, 다시 자라는 시간이 수입의 한도가 된다)
+  const give = () => spawnPickup(n.nd.res, n.x, n.y - 10, 1);
   while (n.acc >= n.nd.per && n.left > 0) { n.acc -= n.nd.per; n.left--; give(); }
   burst(n.x, n.y - 16, n.nd.res === 'wood' ? '#b98552' : '#b8bdc9', 3, 90);
   if (n.hp <= 0) {
     while (n.left > 0) { n.left--; give(); }
-    n.hp = 0; n.respawnAt = now + 45;
+    n.hp = 0; n.respawnAt = now + NODE_RESPAWN;
     burst(n.x, n.y - 16, n.nd.res === 'wood' ? '#6b8f4a' : '#9aa0ae', 14, 180);
   }
 }
@@ -760,7 +776,7 @@ function updProjs(dt) {
 function impact(p) {
   const t = p.t;
   if (p.heal) { if (t && t.isHero) healHero(t, p.heal); return; }
-  if (p.node) { if (t && t.hp > 0) damageNode(t, heroAtk(p.owner)); return; }
+  if (p.node) { if (t && t.hp > 0) damageNode(t, CHOP); return; }
   if (p.splash) {
     burst(p.tx, p.ty, '#ff9a4a', 8, 120);
     fxs.push({ kind: 'ring', x: p.tx, y: p.ty + 10, r: p.splash, t: 0, T: 0.25, c: '#ff9a4a' });
@@ -856,7 +872,7 @@ function openChest(c) {
   c.opened = true; daily.opened[regionIdx].push(c.i); daily.chests++;
   const z = Math.max(1, c.zone), L = REG().loot;
   const drop = (type, n) => { for (let left = Math.round(n); left > 0; left -= 10) spawnPickup(type, c.x, c.y - 10, Math.min(10, left)); };
-  drop('gold', randi(8, 16) * z * L); drop('wood', randi(10, 20) * L); drop('stone', randi(10, 20) * L); drop('meat', randi(4, 8) * z * L);
+  drop('gold', randi(6, 12) * z * L); drop('wood', randi(5, 10) * L); drop('stone', randi(4, 8) * L); drop('meat', randi(4, 8) * z * L);
   if (Math.random() < 0.15) dropItem(makeItem(REG().tier + z), c.x, c.y);
   burst(c.x, c.y - 14, '#ffcf4a', 24, 200);
   toast(`보물상자 (${daily.chests}/${CHESTS_PER_DAY})`);
@@ -991,13 +1007,17 @@ function reqText(g) {
     case 'pay': return Object.keys(q.cost).map(k => `${RES_NAME[k]} ${q.cost[k]}`).join(' · ') + ' 바치기';
     case 'hunt': return `${MON[q.mon].name} ${q.n}마리 처치`;
     case 'elite': return '길목을 지키는 정예 처치';
-    case 'build': return `${PAD[q.pad].name} Lv${q.lv}`;
-    case 'squad': return `용병단 Lv${q.lv}`;
-    case 'recruit': return '주점에서 영웅 모집';
-    case 'herolv': return `영웅 한 명을 Lv${q.lv}로`;
+    case 'build': return `${PAD[q.pad].name} Lv${q.lv} 달성`;
+    case 'squad': return `용병단 Lv${q.lv} 달성`;
+    case 'recruit': return `영웅 ${q.n}명 모으기`;
+    case 'herolv': return `영웅 ${q.cnt > 1 ? q.cnt + '명' : '한 명'} Lv${q.lv} 달성`;
+    case 'gather': return `${RES_NAME[q.res]} ${q.n}개 모으기`;
+    case 'fog': return '정화 마법진에서 안개 걷기';
   }
   return '';
 }
+const ownedN = () => roster.filter(r => r.owned).length;
+const heroesAt = l => roster.filter(r => r.owned && r.lvl >= l).length;   // 레벨 l 이상인 보유 영웅 수
 function reqDone(g) {
   const q = g.req;
   switch (q.type) {
@@ -1006,24 +1026,41 @@ function reqDone(g) {
     case 'elite': return g.n >= 1;
     case 'build': return lv[q.pad] >= q.lv;
     case 'squad': return squad.lvl >= q.lv;
-    case 'recruit': return pub.pulls >= 1;
-    case 'herolv': return roster.some(r => r.owned && r.lvl >= q.lv);
+    case 'recruit': return ownedN() >= q.n;
+    case 'herolv': return heroesAt(q.lv) >= (q.cnt || 1);
+    case 'gather': return g.n >= q.n;
+    case 'fog': return sectors[q.sec].open;
   }
   return false;
 }
+// 임무(이정표): 지금 임무를 마법진과 같은 꼴({ req, n })로 감싸서 reqText · reqDone 등을 같이 쓴다
+const curMission = () => (mIdx < missions.length ? { req: missions[mIdx], n: mN, paid: null, guard: null } : null);
+function tickMission() {   // 끝난 임무를 넘긴다. 이미 채워 둔 성장 목표는 줄줄이 넘어간다
+  let gold = 0, n = 0;
+  for (let m = curMission(); m && reqDone(m); m = curMission()) { if (m.req.type !== 'fog') { gold += m.req.rw.gold; n++; } mIdx++; mN = 0; }
+  if (!n) return;
+  res.gold += gold; life.gold += gold; bumpRes('gold');
+  toast(n > 1 ? `임무 ${n}개 완료 · 금화 +${gold}` : `임무 완료 · 금화 +${gold}`);
+}
+const gateBlocked = g => g.mi != null && mIdx < g.mi;   // 본줄기의 마법진은 임무가 거기까지 와야 쓸 수 있다
 function reqProg(g) {   // 팻말에 적는 짧은 진행 상황
   const q = g.req;
   switch (q.type) {
     case 'hunt': return `${Math.min(g.n, q.n)}/${q.n}`;
     case 'build': return `지금 Lv${lv[q.pad]}`;
     case 'squad': return `지금 Lv${squad.lvl}`;
-    case 'herolv': return `지금 최고 Lv${Math.max(...roster.filter(r => r.owned).map(r => r.lvl))}`;
+    case 'gather': return `${Math.min(g.n, q.n)}/${q.n}`;
+    case 'recruit': return `지금 ${ownedN()}명`;
+    case 'herolv': return q.cnt > 1 ? `지금 ${heroesAt(q.lv)}/${q.cnt}명` : `지금 최고 Lv${Math.max(...roster.filter(r => r.owned).map(r => r.lvl))}`;
   }
   return '';
 }
 const gateLive = g => sectors[g.from].open && !sectors[g.sec].open;   // 지금 갈 수 있고 아직 안 걷힌 마법진
 function openGate(g) {
   const s = sectors[g.sec], rw = gateReward(s.depth);
+  // 플레이 기록 한 줄: [지역, 구역, 깊이, 조건, 플레이 시간(초), 이 마법진에 걸린 시간(초), 용병단 Lv, 영웅 최고 Lv, 영웅 Lv 합, 보유 영웅, 대장간, 훈련장, 큰 등불, 처치 수]
+  const lvs = roster.filter(r => r.owned).map(r => r.lvl);
+  plog.push([regionIdx, s.id, s.depth, g.req.type, Math.round(playTime), Math.round(playTime - (g.t0 < 0 ? playTime : g.t0)), squad.lvl, Math.max(...lvs), lvs.reduce((a, b) => a + b, 0), lvs.length, lv.forge, lv.barracks, lv.lantern, kills]);
   openSector(s, true);
   res.gold += rw.gold; life.gold += rw.gold; bumpRes('gold'); gainXp(rw.xp);
   toast(`안개가 걷혔어요! 금화 +${rw.gold}${s.way ? ' · 순간이동 표석 발견' : ''}`);
@@ -1037,6 +1074,7 @@ function updGates(dt) {
   for (const g of gates) { if (!gateLive(g)) continue; if (d2(P.x, P.y, g.x, g.y) < 58 * 58) on = g; else g.armed = true; }
   if (!on || P.moving) return;
   const q = on.req;
+  if (gateBlocked(on)) { if (on.armed) { on.armed = false; toast('임무를 먼저 끝내야 이 안개를 걷을 수 있어요'); } return; }
   if (q.type !== 'pay') {
     if (reqDone(on)) openGate(on);
     else if (on.armed) { on.armed = false; toast(`아직 안개를 걷을 수 없어요 · ${reqText(on)}`); }
@@ -1118,6 +1156,7 @@ function update(dt) {
     else {
       if (playTime >= pub.next) { refreshLineup(); if (pub.line.some(isLegend)) toast('주점 카드에 레전더리가 나왔어요'); }
       updatePads(dt); updGates(dt); updChests(); updPortals(); updCamp(dt);
+      tickMission();
     }
     if (state === 'play' && heroes.length && heroes.every(h => h.down)) {
       if (mode) modeFail('원정대가 모두 쓰러졌어요');

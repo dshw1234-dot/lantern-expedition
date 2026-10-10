@@ -342,6 +342,7 @@ function drawHero(h) {
   shadowAt(0, 2, r * 0.9);
   if (h.guardT > 0) { ctx.strokeStyle = 'rgba(127,176,255,.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 0, r + 8, (r + 8) * 0.45, 0, 0, TAU); ctx.stroke(); }
   if (h.invulnT > 0) { ctx.strokeStyle = `rgba(159,240,192,${0.4 + 0.4 * Math.sin(now * 20)})`; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(0, 0, r + 11, (r + 11) * 0.45, 0, 0, TAU); ctx.stroke(); }
+  if (h.awakeT > 0) { ctx.fillStyle = `rgba(255,220,120,${0.22 + 0.12 * Math.sin(now * 14)})`; ctx.beginPath(); ctx.ellipse(0, -r, r + 12, r + 16, 0, 0, TAU); ctx.fill(); }   // 각성 중
   ctx.translate(0, -r - bob);
   ctx.scale(h.face, 1);
   const sw = h.swing > 0 ? Math.sin((0.2 - h.swing) / 0.2 * Math.PI) : 0;
@@ -663,9 +664,9 @@ function drawWorldUI(v) {
   if (!mode) {
     for (const g of gates) {   // 정화 마법진: 이름과 조건 팻말
       if (!gateLive(g) || !inView(g, v)) continue;
-      const s = w2s(g.x, g.y + 36), t = w2s(g.x, g.y - 74), ok = reqDone(g), pay = g.req.type === 'pay' && !ok;
+      const s = w2s(g.x, g.y + 36), t = w2s(g.x, g.y - 74), wait = gateBlocked(g), ok = !wait && reqDone(g), pay = !wait && g.req.type === 'pay' && !ok;
       outlineText('정화 마법진', s.x, s.y, 13, '#bff3ff');
-      const l1 = (ok ? '✓ ' : '') + (pay ? '자원 바치기' : reqText(g)), l2 = ok ? '멈춰 서면 안개가 걷혀요' : pay ? ' ' : reqProg(g);
+      const l1 = wait ? '임무를 먼저 끝내세요' : (ok ? '✓ ' : '') + (pay ? '자원 바치기' : reqText(g)), l2 = wait ? '' : ok ? '멈춰 서면 안개가 걷혀요' : pay ? ' ' : reqProg(g);
       ctx.font = `13px ${FONT}`; const w1 = ctx.measureText(l1).width;
       ctx.font = `11.5px ${FONT}`; const w = Math.max(w1, ctx.measureText(l2).width, pay ? 96 : 0) + 22, h = l2 ? 42 : 26;
       ctx.fillStyle = 'rgba(16,18,28,0.86)'; ctx.beginPath(); ctx.roundRect(t.x - w / 2, t.y - h / 2, w, h, 9); ctx.fill();

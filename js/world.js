@@ -58,6 +58,7 @@ let daily;                     // 하루 단위 기록 { date, chests, opened: [
 let prog;                      // 진행 { pigStage, towerBest, seen: 가 본 지역 수 }
 let regionIdx = 0, regionData; // 지역별 { bd: 보스 처치, bs: 보스 발견, open: 안개를 걷은 구역 번호들, g: { 구역 번호: 마법진 진행 [사냥 수, 바친 나무, 돌, 금화] } }
 let camp = null, mode = null, returnPos = null;
+let plog = [];                 // 플레이 기록: 안개를 걷을 때마다 한 줄 (밸런스를 잡는 근거. 설정 창에서 복사한다)
 let monId = 0;
 const P = { x: START.x, y: START.y, moving: false, fx: 0, fy: -1 };   // 원정대 중심과 바라보는 방향
 const cam = { x: START.x, y: START.y, shake: 0 };
@@ -70,6 +71,8 @@ const REG = () => REGIONS[regionIdx];
 let sectors = [];              // 구역 { id, c, r, x, y(한가운데), parent, kids, trunk, depth, zone, mul, open, fade, gate, dens, nodes, chest, portal, way, boss }
 let gates = [];                // 정화 마법진 { x, y, sec: 걷힐 구역, from: 서 있는 구역, req: 조건, n: 진행, paid, armed, guard }
 let waypoints = [];            // 순간이동 표석 { x, y, sec, name }
+let missions = [];             // 임무 사슬 [{ type, …, rw: 보상 }]. 마법진 조건과 같은 꼴이라 reqText · reqDone을 같이 쓴다
+let mIdx = 0, mN = 0;          // 지금 임무의 번호, 그 임무에서 센 수 (사냥 · 채집). 지역마다 따로 저장된다
 let villageExits = [];         // 마을 울타리가 뚫린 방향 (각도)
 const CT = CELL / TILE, TW = WORLD_W / TILE, TH = WORLD_H / TILE;
 const tiles = new Uint8Array(TW * TH);             // 1 = 걸을 수 있는 땅, 0 = 산
@@ -133,7 +136,7 @@ function genWorld(r) {
   };
   do { budget = 20000; } while (!step(-1));
 
-  const zoneOf = depth => (depth <= 0 ? 0 : Math.min(3, 1 + Math.floor((depth - 1) / (TRUNK_LEN / 3))));
+  const zoneOf = depth => (depth <= 0 ? 0 : depth <= ZONE_END[0] ? 1 : depth <= ZONE_END[1] ? 2 : 3);
   const addSector = (c, q, parent, trunk) => {
     const depth = parent ? parent.depth + 1 : 0;
     const s = { id: sectors.length, c, r: q, x: (c + 0.5) * CELL, y: (q + 0.5) * CELL, parent: parent ? parent.id : -1, kids: [], trunk, depth, zone: zoneOf(depth), mul: Math.pow(DEPTH_MUL, Math.max(0, depth - 1)),
@@ -212,7 +215,7 @@ function genWorld(r) {
   for (const s of sectors) {
     if (s.depth <= 1) continue;
     const p = sectors[s.parent], q = neck(p, s, 0.5 - 125 / CELL);
-    s.gate = { x: q.x, y: q.y, sec: s.id, from: p.id, req: null, n: 0, paid: { wood: 0, stone: 0, gold: 0 }, armed: true, guard: null };
+    s.gate = { x: q.x, y: q.y, sec: s.id, from: p.id, req: null, n: 0, paid: { wood: 0, stone: 0, gold: 0 }, t0: -1, armed: true, guard: null };   // t0 = 갈 수 있게 된 때의 플레이 시간
     gates.push(s.gate);
   }
   const NODE_SETS = {
@@ -262,11 +265,9 @@ function genWorld(r) {
     const q = spot(s, 60, 300, 60, [...s.dens.map(d => [d, 150]), [s.chest, 90], [s.way, 110]]);
     if (q) s.portal = { x: q.x, y: q.y, zone: z, armed: true };
   }
-  // 마법진의 조건
-  let pays = 0, builds = 0, herolvs = 0, sideN = 0;
-  // 사냥 조건의 대상: 마법진이 있는 구역(없으면 그 앞 구역)에 가장 많이 사는 몬스터. [종류, 한 번에 나오는 수]
-  const ownMon = s => {
-    let p = sectors[s.parent];
+  // 마법진의 조건과 임무 사슬 (여기서는 난수를 쓰지 않는다. 표를 고쳐도 지도 모양은 그대로다)
+  // 사냥의 대상: 그 구역(없으면 그 앞 구역)에 가장 많이 사는 몬스터. [종류, 한 번에 나오는 수]
+  const ownMon = p => {
     const normal = o => !o.boss && !o.guard;
     while (p.id > 1 && !p.dens.some(normal)) p = sectors[p.parent];
     const cnt = {};
@@ -274,28 +275,36 @@ function genWorld(r) {
     const best = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0];
     return best ? [best, cnt[best]] : ['slime', 4];
   };
+  const hunt = (p, n) => { const [mon, per] = ownMon(p); return { type: 'hunt', mon, n: Math.min(n, per * HUNT_CYCLES) }; };   // 드문 몬스터라면 수를 줄인다
+  let sideN = 0;
   for (const s of sectors) {
     const g = s.gate;
     if (!g) continue;
-    const t = s.depth;
-    let type = s.trunk ? (GATE_SCRIPT[t] ? GATE_SCRIPT[t].type : GATE_CYCLE[(t - 9) % GATE_CYCLE.length]) : ['pay', 'hunt', 'elite'][sideN++ % 3];
-    if (s.trunk && GATE_SCRIPT[t]) g.req = Object.assign({}, GATE_SCRIPT[t]);
-    else if (type === 'build' && builds >= GATE_BUILDS.length) type = 'pay';
-    else if (type === 'herolv' && herolvs >= GATE_HEROLV.length) type = 'hunt';
-    if (!g.req) {
-      if (type === 'pay') { const c = gatePay(t, pays++); if (!s.trunk) for (const k in c) c[k] = Math.max(5, Math.round(c[k] / 10) * 5); g.req = { type, cost: c }; }
-      else if (type === 'hunt') g.req = { type, n: s.trunk ? gateHunt(t) : Math.ceil(gateHunt(t) * 0.6) };
-      else if (type === 'squad') g.req = { type, lv: gateSquad(t) };
-      else if (type === 'build') { const [pad, l] = GATE_BUILDS[builds++]; g.req = { type, pad, lv: l }; }
-      else if (type === 'herolv') g.req = { type, lv: GATE_HEROLV[herolvs++] };
-      else g.req = { type: 'elite' };
-    }
-    if (g.req.type === 'hunt') { const [mon, per] = ownMon(s); g.req.mon = mon; g.req.n = Math.min(g.req.n, per * 4); }   // 드문 몬스터라면 수를 줄인다
-    if (g.req.type === 'elite') {   // 마법진 앞을 지키는 정예. 잡으면 다시 나오지 않는다
-      const p = sectors[g.from], q = neck(p, s, 0.5 - 300 / CELL);
-      g.guard = { x: q.x, y: q.y, zone: p.zone || 1, pack: { [GUARD[p.zone || 1]]: [1, 1] }, members: [], respawnAt: 0, mul: s.mul, depth: s.depth, guard: g };
+    if (s.trunk) { g.req = { type: 'pay', cost: fogCost(s.depth) }; continue; }   // 본줄기: 임무가 여기까지 와야 하고, 값을 바친다
+    const kind = ['pay', 'hunt', 'elite'][sideN++ % 3], p = sectors[g.from];
+    if (kind === 'pay') g.req = { type: 'pay', cost: sidePay(s.depth) };
+    else if (kind === 'hunt') g.req = hunt(p, sideHunt(s.depth));
+    else {   // 마법진 앞을 지키는 정예. 잡으면 다시 나오지 않는다
+      const q = neck(p, s, 0.5 - 300 / CELL);
+      g.req = { type: 'elite', n: 1 };
+      g.guard = { x: q.x, y: q.y, zone: p.zone || 1, pack: { [GUARD[p.zone || 1]]: [1, 1] }, members: [], respawnAt: 0, mul: s.mul * GUARD_MUL, depth: s.depth, guard: g };
       p.dens.push(g.guard);
     }
+  }
+  // 임무 사슬: 안개 하나마다 [지금 할 일] → [새로 올라야 할 성장 목표] → [안개 걷기]
+  missions = [];
+  const have = { forge: 0, barracks: 0, lantern: 0, owned: 2, squad: 1 };
+  for (let t = 2, gk = 0; t <= TRUNK_LEN; t++) {
+    const s = sectors[t], add = m => { m.rw = misReward(t); missions.push(m); };
+    if (t === 2) add({ type: 'gather', res: 'wood', n: fogCost(2).wood });
+    else if (t % 2) add(hunt(sectors[t - 1], misHunt(t)));
+    else add(Object.assign({ type: 'gather' }, misGather(t, gk++)));
+    for (const k of ['forge', 'barracks', 'lantern']) { const v = CURVE[k](t); if (v > have[k]) { have[k] = v; add({ type: 'build', pad: k, lv: v }); } }
+    let v = CURVE.owned(t); if (v > have.owned) { have.owned = v; add({ type: 'recruit', n: v }); }
+    v = CURVE.squad(t); if (v > have.squad) { have.squad = v; add({ type: 'squad', lv: v }); }
+    if (t % MIS_HERO_EVERY === 0) add(t % (MIS_HERO_EVERY * 2) ? { type: 'herolv', lv: CURVE.hero(t), cnt: 1 } : { type: 'herolv', lv: CURVE.hero2(t), cnt: 2 });
+    s.gate.mi = missions.length;   // 이 마법진은 임무가 여기에 닿아야 쓸 수 있다
+    add({ type: 'fog', sec: s.id });
   }
   villageExits = sectors[0].kids.map(k => Math.atan2(sectors[k].y - VC.y, sectors[k].x - VC.x));
 }
@@ -382,28 +391,30 @@ function openSector(s, fx) {
   }
   if (s.chest) { s.chest.opened = daily.opened[regionIdx].includes(s.chest.i); chests.push(s.chest); }
   if (s.portal) portals.push(s.portal);
+  for (const k of s.kids) { const g = sectors[k].gate; if (g && g.t0 < 0) g.t0 = playTime; }   // 이 구역에서 갈 수 있는 마법진들이 이제부터 진행을 센다
 }
 // 저장할 수 있게 지금 지역의 진행을 regionData에 옮겨 적는다
 function saveRegionState() {
   if (!regionData || !sectors.length) return;
   const d = RD();
   d.open = sectors.filter(s => s.open && s.depth > 1).map(s => s.id);
+  d.mi = mIdx; d.mn = mN;
   d.g = {};
-  for (const g of gates) if (!sectors[g.sec].open && (g.n || g.paid.wood || g.paid.stone || g.paid.gold)) d.g[g.sec] = [g.n, g.paid.wood, g.paid.stone, g.paid.gold];
+  for (const g of gates) if (!sectors[g.sec].open && sectors[g.from].open) d.g[g.sec] = [g.n, g.paid.wood, g.paid.stone, g.paid.gold, Math.round(g.t0)];
 }
 
 // ================= 생성 =================
 function makeHero(idx, x, y, clone = false) {
   const def = HERO_DEFS[idx];
   const h = { isHero: true, def, idx, x, y, clone, hp: 1, maxHp: 0, cd: rand(0, 0.4), skillCd: def.s1.cd * 0.5, s2cd: 0, icd: 0, basicCount: 0,
-    think: 0, target: null, down: false, downT: 0, invulnT: 0, flash: 0, swing: 0, guardT: 0, face: 1, walk: false };
+    think: 0, target: null, down: false, downT: 0, invulnT: 0, flash: 0, swing: 0, guardT: 0, face: 1, walk: false, s4cd: 6, awakeT: 0 };
   refreshHp(h); h.hp = h.maxHp;
   return h;
 }
 // 몬스터 수치는 태어날 때 정해진다: 지역 배율 × 구역 깊이 배율(또는 도전 콘텐츠 배율) × 정예 배율
 function makeMonster(type, x, y, den, elite = false, mulOverride) {
   const b = MON[type], R = REG();
-  const mul = mulOverride != null ? mulOverride : R.mul * ((den && den.mul) || 1);
+  const mul = mulOverride != null ? mulOverride : R.mul * MON_BASE * ((den && den.mul) || 1);
   const hp = Math.round(b.hp * mul * (elite ? 3 : 1));
   const col = type === 'boss' ? R.bossCol : (R.tint && R.tint[type]) || b.col;
   return { isMon: true, id: ++monId, type, d: b, x, y, hp, maxHp: hp, atk: b.atk * mul * (elite ? 1.5 : 1), r: b.r * (elite ? 1.3 : 1), col, elite, mul,
@@ -464,7 +475,7 @@ function newGame() {
   regionData = newRegionData();
   res = { wood: 0, stone: 0, gold: 0, meat: 0 }; life = { wood: 0, stone: 0, gold: 0, meat: 0 };
   paid = {}; for (const p of PADS) paid[p.id] = { wood: 0, stone: 0, gold: 0 };
-  kills = 0; maxZone = 0; playTime = 0; now = 0;
+  kills = 0; maxZone = 0; playTime = 0; now = 0; plog = [];
   movedOnce = false; stoppedOnce = false; winT = 0; wipeT = 0;
   camp = null; mode = null; returnPos = null;
   buffs.atkT = buffs.aspdT = buffs.ampT = 0;
@@ -484,8 +495,12 @@ function loadRegion(r, saveOld = false) {
   const d = RD();
   for (const id of d.open || []) { const s = sectors[id]; if (s) s.open = true; }
   for (const s of sectors) if (s.open && s.parent >= 0 && !sectors[s.parent].open) s.open = false;   // 부모가 닫혀 있으면 열릴 수 없다 (지도가 바뀐 옛 저장 대비)
-  for (const g of gates) { const q = (d.g || {})[g.sec]; if (q) { g.n = q[0] | 0; g.paid = { wood: q[1] | 0, stone: q[2] | 0, gold: q[3] | 0 }; } }
+  for (const g of gates) { const q = (d.g || {})[g.sec]; if (q) { g.n = q[0] | 0; g.paid = { wood: q[1] | 0, stone: q[2] | 0, gold: q[3] | 0 }; if (q[4] != null) g.t0 = +q[4] || 0; } }
   for (const s of sectors) if (s.open) openSector(s, false);
+  // 임무 번호. 임무가 생기기 전의 저장이라면, 이미 걷은 가장 깊은 안개 바로 다음 임무에서 시작한다
+  const deep = sectors.filter(s => s.trunk && s.open && s.gate).pop();
+  mIdx = d.mi != null ? clamp(d.mi | 0, 0, missions.length) : deep ? deep.gate.mi + 1 : 0;
+  mN = d.mi != null ? d.mn | 0 : 0;
   rebuildSquad(true);
   placeSquad(START.x, START.y);
 }

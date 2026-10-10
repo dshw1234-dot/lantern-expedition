@@ -45,12 +45,29 @@ const reviveNeed = () => (!mode && inVillage(P.x, P.y) ? 0.6 : REVIVE_T);
 function teamAtk() { const a = heroes.filter(h => !h.down); return a.length ? a.reduce((s, h) => s + heroAtk(h), 0) / a.length : 10; }
 
 // ================= 이동 · 탐색 =================
+// 산과 안개는 지나갈 수 없다. 막히면 가로나 세로 한쪽으로만 미끄러지고, 그것도 안 되면 o.blocked를 세운다.
+// 경기장은 월드 밖이라 검사하지 않는다. 밀려서 이미 산속에 끼었다면 빠져나오게 둔다
 function moveToward(o, tx, ty, spd, dt, stop) {
+  o.blocked = false;
   const dx = tx - o.x, dy = ty - o.y, d = Math.hypot(dx, dy);
   if (d <= stop || d < 0.01) return false;
-  const s = Math.min(d - stop, spd * dt);
-  o.x += dx / d * s; o.y += dy / d * s;
+  const s = Math.min(d - stop, spd * dt), nx = o.x + dx / d * s, ny = o.y + dy / d * s;
   if (Math.abs(dx) > 1) o.face = dx < 0 ? -1 : 1;
+  if (o.x > WORLD_W || canWalk(nx, ny) || !canWalk(o.x, o.y)) { o.x = nx; o.y = ny; return true; }
+  if (canWalk(nx, o.y)) { o.x = nx; return true; }
+  if (canWalk(o.x, ny)) { o.y = ny; return true; }
+  o.blocked = true;
+  return false;
+}
+function nudge(o, dx, dy) {   // 서로 밀어낼 때: 산속으로는 밀리지 않는다
+  const nx = o.x + dx, ny = o.y + dy;
+  if (o.x > WORLD_W || canWalk(nx, ny) || !canWalk(o.x, o.y)) { o.x = nx; o.y = ny; }
+}
+const canStand = (x, y) => canWalk(x - 16, y) && canWalk(x + 16, y) && canWalk(x, y - 12) && canWalk(x, y + 14);   // 원정대 중심이 설 수 있는 자리
+function los(ax, ay, bx, by) {   // 두 점 사이에 산이 없는가 (산 너머의 적을 노리지 않게)
+  if (ax > WORLD_W) return true;
+  const n = Math.ceil(Math.hypot(bx - ax, by - ay) / 30);
+  for (let i = 1; i < n; i++) if (!tileAt(ax + (bx - ax) * i / n, ay + (by - ay) * i / n)) return false;
   return true;
 }
 function nearestHero(x, y, maxD) {
@@ -103,12 +120,12 @@ function chooseTarget(h) {
   let best = null, bd = Infinity;
   for (const m of monsters) {
     if (m.dead || m.state === 'return' || d2(m.x, m.y, P.x, P.y) > ENGAGE * ENGAGE) continue;
-    const dd = d2(m.x, m.y, h.x, h.y); if (dd < bd) { bd = dd; best = m; }
+    const dd = d2(m.x, m.y, h.x, h.y); if (dd < bd && los(P.x, P.y, m.x, m.y)) { bd = dd; best = m; }
   }
   if (best || mode) return best;
   for (const n of nodes) {   // 적이 없을 때만 채집. 전투 코드를 그대로 쓴다
     if (n.hp <= 0 || d2(n.x, n.y, P.x, P.y) > GATHER * GATHER) continue;
-    const dd = d2(n.x, n.y, h.x, h.y); if (dd < bd) { bd = dd; best = n; }
+    const dd = d2(n.x, n.y, h.x, h.y); if (dd < bd && los(P.x, P.y, n.x, n.y)) { bd = dd; best = n; }
   }
   return best;
 }
@@ -128,6 +145,7 @@ function updHero(h, dt, i, auto) {
   const s = slotPos(i);
   if (h.down) {   // 쓰러지면 대열을 따라다니다가, 필드에서는 REVIVE_T초 · 마을에서는 곧바로 일어난다
     h.walk = moveToward(h, s.x, s.y, squadSpeed() * 1.4, dt, 2);
+    if (d2(h.x, h.y, P.x, P.y) > 300 * 300) { h.x = P.x; h.y = P.y; }
     h.downT += dt;
     if (h.downT >= reviveNeed()) revive(h);
     return;
@@ -136,6 +154,7 @@ function updHero(h, dt, i, auto) {
   if (!auto) {   // 움직이는 중: 대열 자리만 따라간다
     h.target = null;
     h.walk = moveToward(h, s.x, s.y, squadSpeed() * 1.4, dt, 2);
+    if (d2(h.x, h.y, P.x, P.y) > 300 * 300) { h.x = P.x + rand(-12, 12); h.y = P.y + rand(-12, 12); }   // 모퉁이에 걸려 뒤처지면 대열로 데려온다
     return;
   }
   h.think -= dt;
@@ -355,7 +374,10 @@ function damageHero(h, dmg) {
   if (h.guardT > 0) dmg *= 0.5;
   h.hp -= dmg; h.flash = 0.12;
   if (settings.dmgText) addText(h.x + rand(-6, 6), h.y - h.def.r * 2 - 10, Math.round(dmg), '#ff8a80', true);
-  if (h.hp <= 0) { h.hp = 0; h.down = true; h.downT = 0; h.target = null; burst(h.x, h.y - 10, '#8a8fa3', 16, 150); addText(h.x, h.y - 44, '쓰러짐', '#ff8a80'); }
+  if (h.hp <= 0) {
+    h.hp = 0; h.down = true; h.downT = 0; h.target = null; burst(h.x, h.y - 10, '#8a8fa3', 16, 150); addText(h.x, h.y - 44, '쓰러짐', '#ff8a80');
+    if (!mode && !inVillage(P.x, P.y)) tip('down');
+  }
 }
 
 // ================= 피해 · 상태이상 =================
@@ -478,7 +500,7 @@ function updMonster(m, dt) {
     if (m.look <= 0) {
       m.look = 0.25;
       const h = nearestHero(m.x, m.y, m.arena ? 99999 : d.aggro);
-      if (h && (m.arena || !inVillage(h.x, h.y, 20))) { m.state = 'chase'; m.target = h; }
+      if (h && (m.arena || (!inVillage(h.x, h.y, 20) && los(m.x, m.y, h.x, h.y)))) { m.state = 'chase'; m.target = h; }
       else if (m.arena && mode && mode.statue) { m.state = 'chase'; m.target = null; }
     }
   } else if (m.state === 'chase') {
@@ -488,7 +510,8 @@ function updMonster(m, dt) {
     if (!t || t.down || m.look <= 0) { m.look = 0.4; if (!forced) { t = nearestHero(m.x, m.y, m.arena ? 99999 : d.aggro * 1.8); m.target = t; } }
     if (m.arena && mode && mode.statue && (!t || d2(t.x, t.y, m.x, m.y) > 140 * 140)) t = mode.statue;   // 마을 방어: 수호상을 노린다
     const leash = d.boss ? 750 : 520;
-    const leashed = !m.arena && !(m.lured && camp) && d2(m.x, m.y, m.den.x, m.den.y) > leash * leash;
+    m.stuckT = m.blocked ? m.stuckT + dt : 0;   // 산에 막혀 못 가는 시간
+    const leashed = !m.arena && ((!(m.lured && camp) && d2(m.x, m.y, m.den.x, m.den.y) > leash * leash) || m.stuckT > 1.5);
     if (!m.arena && (!t || leashed || inVillage(t.x, t.y, 10))) {
       m.state = 'return'; m.target = null; m.forced = null; m.slam = null; m.lured = false;
     } else if (!t) {
@@ -499,7 +522,7 @@ function updMonster(m, dt) {
         const range = d.ranged || m.r + targetR(t) + 4;
         const dd = Math.hypot(t.x - m.x, t.y - m.y);
         if (dd > range) m.walk = moveToward(m, t.x, t.y, spd, dt, range - 2);
-        else m.face = t.x < m.x ? -1 : 1;
+        else { m.face = t.x < m.x ? -1 : 1; m.blocked = false; }
         m.cd -= dt;
         if (dd <= range + 3 && m.cd <= 0) {
           m.cd = d.rate * (d.boss && m.hp < m.maxHp * 0.3 ? 0.7 : 1); m.atkAnim = 0.22;
@@ -512,6 +535,8 @@ function updMonster(m, dt) {
   } else {   // return: 소굴로 돌아가며 회복
     m.walk = moveToward(m, m.den.x, m.den.y, spd * 1.15, dt, 20);
     m.hp = Math.min(m.maxHp, m.hp + m.maxHp * 0.3 * dt);
+    m.stuckT = m.blocked ? m.stuckT + dt : 0;
+    if (m.stuckT > 1) { m.x = m.den.x; m.y = m.den.y; m.stuckT = 0; }   // 돌아가는 길이 막히면 소굴로 바로 보낸다
     if (d2(m.x, m.y, m.den.x, m.den.y) < 45 * 45) { m.state = 'idle'; m.hp = m.maxHp; m.st = {}; }
   }
   if (m.arena) return;
@@ -523,24 +548,29 @@ function killMonster(m) {
   burst(m.x, m.y - 10, m.col, m.d.boss ? 80 : m.elite ? 28 : 14, m.d.boss ? 360 : 170);
   if (m.arena && mode) modeKill(m);
   if (m.d.pig) return;
-  const loot = m.arena && mode ? mode.loot : REG().loot, el = m.elite ? 3 : 1;
+  // 필드 몬스터는 깊은 구역일수록 강한 만큼 더 많이 준다 (드랍은 배율의 제곱근, 경험치는 0.6제곱)
+  const field = !(m.arena && mode), den = m.den, depth = (den && den.depth) || 1;
+  const loot = field ? REG().loot * Math.sqrt(m.mul / REG().mul) : mode.loot, el = m.elite ? 3 : 1;
   const drop = (type, n) => { for (let left = n; left > 0; left -= 10) spawnPickup(type, m.x, m.y - 10, Math.min(10, left)); };
   drop('gold', Math.round(randi(m.d.gold[0], m.d.gold[1]) * loot * el));
   drop('meat', Math.round(randi(m.d.meat[0], m.d.meat[1]) * loot * el));
-  gainXp(m.d.xp * (m.elite ? 4 : 1) * (camp ? 2 : 1) * (m.arena && mode ? mode.xpMul : Math.pow(REG().mul, 0.6)));
+  gainXp(m.d.xp * (m.elite ? 4 : 1) * (camp ? 2 : 1) * (field ? Math.pow(m.mul, 0.6) : mode.xpMul));
   if (Math.random() < (m.elite || m.d.boss ? BOOK_P.elite : BOOK_P.normal)) spawnPickup(pick(Object.keys(BOOKS)), m.x, m.y - 10);
-  const tier = m.arena && mode ? mode.tier : REG().tier + Math.max(1, zoneAt(m.x, m.y));
+  const tier = field ? REG().tier + 1 + Math.floor(depth / 6) : mode.tier;
   if (m.elite) dropItem(makeItem(tier), m.x, m.y);
   if (m.d.boss) { dropItem(makeItem(tier + 1, 2), m.x, m.y); dropItem(makeItem(tier + 1, 2), m.x, m.y); }
-  const den = m.den;
+  if (field && !m.summoned) {
+    // 정화 마법진의 사냥 조건: 그 마법진까지 갈 수 있게 된 뒤에 잡은 것만 센다
+    for (const g of gates) if (g.req.type === 'hunt' && g.req.mon === m.type && g.n < g.req.n && sectors[g.from].open && !sectors[g.sec].open) g.n++;
+    if (den && den.guard && m.elite) { den.guard.n = 1; toast('길목을 지키던 정예를 물리쳤어요. 마법진 위에 멈춰 서세요'); }
+  }
   if (den && !m.summoned && !m.arena) {
     const k = den.members.indexOf(m); if (k >= 0) den.members.splice(k, 1);
-    if (!den.members.length) den.respawnAt = now + 30;
+    if (!den.members.length) den.respawnAt = den.guard && den.guard.n ? 0 : now + 30;   // 길목의 정예는 다시 나오지 않는다
   }
   if (m.d.boss && !m.arena) {
     RD().bd = true; winT = 2; shake(14);
     toast(`${REG().boss}를 물리쳤다!`);
-    reveal(m.x, m.y, 900);
     for (const o of monsters) if (o.summoned) o.state = 'return';
   }
 }
@@ -554,7 +584,7 @@ function separate() {
       if (dd < 0.0001) { o.x += rand(-1, 1); o.y += rand(-1, 1); return; }
       const dl = Math.sqrt(dd), push = (rr - dl) / 2, nx = dx / dl, ny = dy / dl;
       const wm = m.d.boss ? 0.1 : 1, wo = o.d.boss ? 0.1 : 1;
-      m.x -= nx * push * wm; m.y -= ny * push * wm; o.x += nx * push * wo; o.y += ny * push * wo;
+      nudge(m, -nx * push * wm, -ny * push * wm); nudge(o, nx * push * wo, ny * push * wo);
     });
   }
   for (let i = 0; i < heroes.length; i++) for (let j = i + 1; j < heroes.length; j++) {
@@ -564,7 +594,7 @@ function separate() {
     if (dd >= rr * rr) continue;
     if (dd < 0.0001) { b.x += rand(-1, 1); continue; }
     const dl = Math.sqrt(dd), push = (rr - dl) / 2;
-    a.x -= dx / dl * push; a.y -= dy / dl * push; b.x += dx / dl * push; b.y += dy / dl * push;
+    nudge(a, -dx / dl * push, -dy / dl * push); nudge(b, dx / dl * push, dy / dl * push);
   }
   for (const h of heroes) {
     if (h.down) continue;
@@ -573,7 +603,7 @@ function separate() {
       const rr = h.def.r + m.r, dx = m.x - h.x, dy = m.y - h.y, dd = dx * dx + dy * dy;
       if (dd >= rr * rr || dd < 0.0001) return;
       const dl = Math.sqrt(dd), push = rr - dl, nx = dx / dl, ny = dy / dl, hw = m.d.boss ? 0.8 : 0.3;
-      h.x -= nx * push * hw; h.y -= ny * push * hw; m.x += nx * push * (1 - hw); m.y += ny * push * (1 - hw);
+      nudge(h, -nx * push * hw, -ny * push * hw); nudge(m, nx * push * (1 - hw), ny * push * (1 - hw));
     });
   }
 }
@@ -948,11 +978,80 @@ function levelUpPad(p) {
     const msg = { lantern: '등불이 더 멀리 비춰요', forge: `공격력 +${lv.forge * 20}%`, barracks: `최대 체력 +${lv.barracks * 20}% · 출전 ${squadLimit()}명` }[p.id];
     toast(`${p.name} Lv${lv[p.id]} · ${msg}`);
     if (p.id === 'barracks' && heroes.length > before) toast('대기하던 영웅이 출전했어요');
-    if (p.id === 'lantern') lastReveal.x = -9999;
   }
   burst(p.x, p.y - 30, '#ffcf6b', 36, 260);
   fxs.push({ kind: 'ring', x: p.x, y: p.y, r: 90, t: 0, T: 0.5, c: '#ffcf6b' });
   saveLocal();
+}
+// ================= 정화 마법진 =================
+// 길목을 막은 안개는 마법진의 조건을 채우고 그 위에 멈춰 서야 걷힌다. 조건의 종류와 수치는 data.js의 GATE_* 표
+function reqText(g) {
+  const q = g.req;
+  switch (q.type) {
+    case 'pay': return Object.keys(q.cost).map(k => `${RES_NAME[k]} ${q.cost[k]}`).join(' · ') + ' 바치기';
+    case 'hunt': return `${MON[q.mon].name} ${q.n}마리 처치`;
+    case 'elite': return '길목을 지키는 정예 처치';
+    case 'build': return `${PAD[q.pad].name} Lv${q.lv}`;
+    case 'squad': return `용병단 Lv${q.lv}`;
+    case 'recruit': return '주점에서 영웅 모집';
+    case 'herolv': return `영웅 한 명을 Lv${q.lv}로`;
+  }
+  return '';
+}
+function reqDone(g) {
+  const q = g.req;
+  switch (q.type) {
+    case 'pay': return Object.keys(q.cost).every(k => g.paid[k] >= q.cost[k]);
+    case 'hunt': return g.n >= q.n;
+    case 'elite': return g.n >= 1;
+    case 'build': return lv[q.pad] >= q.lv;
+    case 'squad': return squad.lvl >= q.lv;
+    case 'recruit': return pub.pulls >= 1;
+    case 'herolv': return roster.some(r => r.owned && r.lvl >= q.lv);
+  }
+  return false;
+}
+function reqProg(g) {   // 팻말에 적는 짧은 진행 상황
+  const q = g.req;
+  switch (q.type) {
+    case 'hunt': return `${Math.min(g.n, q.n)}/${q.n}`;
+    case 'build': return `지금 Lv${lv[q.pad]}`;
+    case 'squad': return `지금 Lv${squad.lvl}`;
+    case 'herolv': return `지금 최고 Lv${Math.max(...roster.filter(r => r.owned).map(r => r.lvl))}`;
+  }
+  return '';
+}
+const gateLive = g => sectors[g.from].open && !sectors[g.sec].open;   // 지금 갈 수 있고 아직 안 걷힌 마법진
+function openGate(g) {
+  const s = sectors[g.sec], rw = gateReward(s.depth);
+  openSector(s, true);
+  res.gold += rw.gold; life.gold += rw.gold; bumpRes('gold'); gainXp(rw.xp);
+  toast(`안개가 걷혔어요! 금화 +${rw.gold}${s.way ? ' · 순간이동 표석 발견' : ''}`);
+  if (s.way) tip('map');
+  burst(g.x, g.y - 20, '#8ff3ff', 40, 300); shake(6);
+  fxs.push({ kind: 'ring', x: g.x, y: g.y, r: 140, t: 0, T: 0.6, c: '#8ff3ff' });
+  saveLocal();
+}
+function updGates(dt) {
+  let on = null;
+  for (const g of gates) { if (!gateLive(g)) continue; if (d2(P.x, P.y, g.x, g.y) < 58 * 58) on = g; else g.armed = true; }
+  if (!on || P.moving) return;
+  const q = on.req;
+  if (q.type !== 'pay') {
+    if (reqDone(on)) openGate(on);
+    else if (on.armed) { on.armed = false; toast(`아직 안개를 걷을 수 없어요 · ${reqText(on)}`); }
+    return;
+  }
+  payT -= dt; if (payT > 0) return; payT = 0.06;   // 자원을 바치는 조건: 발판처럼 조금씩 들어간다
+  const need = k => (q.cost[k] || 0) - on.paid[k];
+  const keys = Object.keys(q.cost).filter(k => need(k) > 0);
+  if (!keys.length) { openGate(on); return; }
+  const k = keys.find(c => res[c] >= 1);
+  if (!k) { if (now - lackT > 3.5) { lackT = now; toast('바칠 자원이 모자라요'); } return; }
+  const stepN = Math.min(need(k), Math.floor(res[k]), Math.max(1, Math.ceil(q.cost[k] / 20)));
+  res[k] -= stepN; on.paid[k] += stepN; bumpRes(k);
+  tokens.push({ type: k, sx: P.x, sy: P.y - 30, tx: on.x, ty: on.y - 10, t: 0 });
+  if (Object.keys(q.cost).every(c => need(c) <= 0)) { payT = 0.6; openGate(on); }
 }
 function fillSquad() {   // 출전 자리가 남으면 대기 중인 영웅을 채운다
   let active = roster.filter(r => r.owned && r.active).length;
@@ -971,19 +1070,22 @@ function update(dt) {
   if (P.moving) {
     const sp = squadSpeed() * clamp((mv.m - 0.15) / 0.5, 0.45, 1);
     P.fx = mv.x / mv.m; P.fy = mv.y / mv.m;
-    P.x += P.fx * sp * dt; P.y += P.fy * sp * dt;
+    const nx = P.x + P.fx * sp * dt, ny = P.y + P.fy * sp * dt;
     if (mode) {   // 경기장 밖으로 못 나간다
+      P.x = nx; P.y = ny;
       const dx = P.x - ARENA.x, dy = P.y - ARENA.y, dd = Math.hypot(dx, dy), lim = ARENA.r - 40;
       if (dd > lim) { P.x = ARENA.x + dx / dd * lim; P.y = ARENA.y + dy / dd * lim; }
-    } else { P.x = clamp(P.x, 50, WORLD - 50); P.y = clamp(P.y, 50, WORLD - 50); }
+    } else if (canStand(nx, ny) || (!canStand(P.x, P.y) && canWalk(nx, ny))) { P.x = nx; P.y = ny; }   // 산과 안개에 막히면 벽을 따라 미끄러진다
+    else if (canStand(nx, P.y)) P.x = nx;
+    else if (canStand(P.x, ny)) P.y = ny;
     movedOnce = true;
     if (returnPos && !inVillage(P.x, P.y)) returnPos = null;
   } else if (was && movedOnce) stoppedOnce = true;
   if (!mode) {
-    if (d2(P.x, P.y, lastReveal.x, lastReveal.y) > 144) { reveal(P.x, P.y, revealR()); lastReveal.x = P.x; lastReveal.y = P.y; }
     const z = zoneAt(P.x, P.y);
     if (z > maxZone) { maxZone = z; toast(`${ZONE_NAMES[z]}에 들어섰다`); }
-    if (!RD().bs && d2(P.x, P.y, BOSS_POS.x, BOSS_POS.y) < (revealR() + 160) ** 2) { RD().bs = true; toast(`폐허 깊은 곳에서 ${REG().boss}가 깨어났다`); }
+    if (!RD().bs && d2(P.x, P.y, BOSS_POS.x, BOSS_POS.y) < (revealR() + 160) ** 2 && isRevealed(P.x, P.y) && secAt(P.x, P.y).boss) { RD().bs = true; toast(`폐허 깊은 곳에서 ${REG().boss}가 깨어났다`); }
+    for (const s of sectors) if (s.fade > 0) s.fade = Math.max(0, s.fade - dt / 1.4);   // 걷히는 안개
   }
   buildGrid();
   const auto = state === 'play' && !P.moving;
@@ -997,6 +1099,7 @@ function update(dt) {
     tickT = 1;
     checkDaily(); tickProd();
     if (!mode) {
+      tipCheck();
       for (const n of nodes) if (n.hp <= 0 && now >= n.respawnAt && d2(n.x, n.y, P.x, P.y) > 380 * 380) { n.hp = n.maxHp; n.left = Math.floor(n.maxHp / n.nd.per); n.acc = 0; }
       for (const d of dens) {
         if (d.boss || d.members.length || !d.respawnAt) continue;
@@ -1014,8 +1117,7 @@ function update(dt) {
     if (mode) updateMode(dt);
     else {
       if (playTime >= pub.next) { refreshLineup(); if (pub.line.some(isLegend)) toast('주점 카드에 레전더리가 나왔어요'); }
-      updatePads(dt); updChests(); updPortals(); updCamp(dt);
-      advanceQuests();
+      updatePads(dt); updGates(dt); updChests(); updPortals(); updCamp(dt);
     }
     if (state === 'play' && heroes.length && heroes.every(h => h.down)) {
       if (mode) modeFail('원정대가 모두 쓰러졌어요');
@@ -1037,4 +1139,5 @@ function finishWipe() {
   for (const m of monsters) if (m.state === 'chase') { m.state = 'return'; m.forced = null; m.target = null; m.slam = null; }
   orbs = []; delayed = [];
   toast('마을 등불 아래에서 다시 일어섰다');
+  tip('wipe', true);
 }

@@ -3,15 +3,24 @@
 
 // ================= 기본 상수 =================
 const TAU = Math.PI * 2;
-const WORLD = 3600;                          // 월드 크기 (정사각형)
-const VC = { x: 1800, y: 1800 };             // 마을 중심
+// 지역 하나 = 구역(칸) GRID_W x GRID_H 격자. 그 가운데 일부 칸만 길로 이어진 구역이 되고, 나머지는 산이다
+const CELL = 880;                            // 구역 한 칸의 크기
+const GRID_W = 9, GRID_H = 12;
+const WORLD_W = CELL * GRID_W, WORLD_H = CELL * GRID_H;   // 7920 x 10560
+const TILE = 40;                             // 지형 격자 한 칸 (땅 / 산)
+const VCELL = { c: 4, r: 11 };               // 마을이 놓이는 칸 (맨 아래 가운데)
+const VC = { x: (VCELL.c + 0.5) * CELL, y: (VCELL.r + 0.5) * CELL };   // 마을 중심
 const VILLAGE_R = 400;                       // 마을 반경. 몬스터는 들어오지 못한다
-const ZONE_R = [400, 1000, 1550];            // 마을 / 들판 / 숲 경계. 그 바깥은 폐허
+const TRUNK_LEN = 36;                        // 본줄기 구역 수 (마을에서 보스까지). 앞 · 가운데 · 뒤 1/3씩이 들판 · 숲 · 폐허
+const BRANCH_CELLS = 16;                     // 곁가지 구역 수 (들르지 않아도 되는 막다른 길)
+const WAY_EVERY = 6;                         // 본줄기 구역 몇 개마다 순간이동 표석을 둘지
+const DEPTH_MUL = 1.05;                      // 구역이 하나 깊어질 때마다 몬스터 체력 · 공격력 배율
+const BOSS_MUL = 5;                          // 지역 보스 배율
 const ENGAGE = 300;                          // 멈췄을 때 싸움을 거는 거리 (원정대 중심 기준)
 const GATHER = 250;                          // 멈췄을 때 채집하러 가는 거리
-const BOSS_POS = { x: 3150, y: 450 };
+const BOSS_POS = { x: 0, y: 0 };             // 보스 자리. 지역을 만들 때 마지막 구역 한가운데로 정해진다
 const START = { x: VC.x, y: VC.y + 10 };
-const ARENA = { x: 4700, y: 1800, r: 520 };  // 도전 콘텐츠 전용 경기장 (월드 바깥에 둔다)
+const ARENA = { x: WORLD_W + 1500, y: 1800, r: 520 };   // 도전 콘텐츠 전용 경기장 (월드 바깥에 둔다)
 const SAVE_KEY = 'lantern-expedition-v1';
 const SETTINGS_KEY = 'lantern-expedition-settings';
 const JR = 56;                               // 조이스틱 반경 (px)
@@ -115,16 +124,37 @@ const STATUS = {
 // mul = 몬스터 체력·공격력 배율, loot = 드랍 배율, tier = 장비 등급 기준, immune = 이 지역 몬스터가 걸리지 않는 상태이상
 const REGIONS = [
   { name: '안개 들판', seed: 20260929, mul: 1, loot: 1, tier: 0, boss: '안개 군주', bossCol: '#4b3a8f', crown: '#ffcf4a', eye: '#ff5ad1', immune: null,
-    base: '#46455a', forest: '45,82,54', meadow: '76,120,60', plaza: '112,92,66',
+    base: '#46455a', forest: '45,82,54', meadow: '76,120,60', plaza: '112,92,66', rock: ['#2a2733', '#4a4556', '#6a6478'], fog: '86,44,128',
     shades: [null, ['#5a8a45', '#3f6b35', '#6c9a50'], ['#244632', '#35603f', '#1d3b2a'], ['#3b3a4c', '#555468', '#4b4550']],
     tuft: ['#78ad58', '#3f7448'], tree: [['#2f6b3a', '#3b7d45', '#4f9555'], ['#1f4a31', '#2a5c3a', '#377048']], snow: false, tint: null },
   { name: '서리 군도', seed: 4411, mul: 2.6, loot: 1.6, tier: 3, boss: '서리 여왕', bossCol: '#2f5f8f', crown: '#dff6ff', eye: '#7ff0ff', immune: 'frost',
-    base: '#566278', forest: '64,104,112', meadow: '132,160,172', plaza: '118,118,128',
+    base: '#566278', forest: '64,104,112', meadow: '132,160,172', plaza: '118,118,128', rock: ['#2c3644', '#4c5c70', '#e4f0f8'], fog: '70,96,150',
     shades: [null, ['#a9c3cc', '#8eaab6', '#c6dbe2'], ['#3f6a70', '#557f86', '#335a60'], ['#4d586c', '#667287', '#5a6478']],
     tuft: ['#d8ecf2', '#9cc7cc'], tree: [['#2e5e62', '#3c7175', '#e8f4f8'], ['#244c52', '#305f66', '#e8f4f8']], snow: true,
     tint: { slime: '#bfe9ff', bigslime: '#8fd0f0', wolf: '#e6eef8', golem: '#8aa2b8', skeleton: '#dff3ff', wraith: '#9fd7ff' } },
 ];
 const SHIP_COST = { wood: 400, stone: 200, gold: 150 };
+
+// ================= 정화 마법진 (안개를 걷는 조건) =================
+// 본줄기 구역 번호(마을에서 몇 번째인가) → 조건. 처음 몇 개는 게임을 배우는 순서로 정해 두고, 그 뒤로는 GATE_CYCLE을 되풀이한다
+//   pay = 자원 바치기, hunt = 사냥, elite = 길목의 정예, build = 건물 레벨, squad = 용병단 레벨, recruit = 영웅 모집, herolv = 영웅 레벨
+const GATE_SCRIPT = {
+  2: { type: 'pay', cost: { wood: 10 } },
+  3: { type: 'hunt', n: 8 },
+  4: { type: 'build', pad: 'forge', lv: 1 },
+  5: { type: 'recruit' },
+  6: { type: 'herolv', lv: 2 },
+  7: { type: 'elite' },
+  8: { type: 'build', pad: 'lantern', lv: 1 },
+};
+const GATE_CYCLE = ['pay', 'hunt', 'squad', 'build', 'elite', 'herolv'];
+const GATE_BUILDS = [['forge', 2], ['barracks', 1], ['forge', 3], ['lantern', 2], ['barracks', 2], ['forge', 4], ['barracks', 3], ['lantern', 3]];   // build 조건이 나올 때마다 차례로
+const GATE_HEROLV = [4, 6, 8, 10, 12];                                    // herolv 조건이 나올 때마다 차례로
+const gatePay = (t, k) => (k % 3 === 2 ? { gold: 10 * t } : { wood: 5 * Math.round(2.4 * t), stone: 5 * Math.round(1.2 * t) });   // t = 구역 번호, k = 몇 번째 pay인가
+const gateHunt = t => Math.min(30, 8 + t);
+const gateSquad = t => Math.min(SQUAD_MAX_LV - 2, 2 + Math.floor(t * 0.45));
+const GUARD = { 1: 'bigslime', 2: 'golem', 3: 'skeleton' };              // 길목을 지키는 정예 (구역 종류별)
+const gateReward = depth => ({ gold: 10 + 4 * depth, xp: 6 + 2 * depth });   // 안개를 걷으면 받는 보상
 
 // ================= 마을 발판 =================
 // kind: pay = 위에 멈추면 자원을 넣어 강화, panel = 멈추면 창이 열림, dock = 선착장 (보스 처치 뒤 배 건조 → 항해 창)

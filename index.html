@@ -54,7 +54,7 @@ button { font: inherit; color: inherit; }
 #quest.flash { animation: qflash .9s ease-out; }
 @keyframes qflash { 0% { box-shadow: 0 0 0 0 rgba(255, 180, 77, .7); } 100% { box-shadow: 0 0 0 14px rgba(255, 180, 77, 0); } }
 #mapbox { display: flex; flex-direction: column; align-items: stretch; gap: 5px; flex: none; width: 92px; }
-#mini { width: 92px; height: 92px; border-radius: 14px; border: 1.5px solid rgba(255, 190, 110, .45); background: #07080d; display: block; }
+#mini { width: 92px; height: 92px; border-radius: 14px; border: 1.5px solid rgba(255, 190, 110, .45); background: #07080d; display: block; pointer-events: auto; cursor: pointer; }
 .pill { font: 12px/1 var(--font-display); color: var(--ink-dim); padding: 4px 8px; border-radius: 999px; background: var(--panel); white-space: nowrap; text-align: center; font-variant-numeric: tabular-nums; }
 .minibtns { display: flex; gap: 4px; }
 .mbtn { flex: 1; padding: 6px 0; border-radius: 10px; border: 1px solid var(--edge); background: var(--panel); font: 13px/1 var(--font-display); pointer-events: auto; cursor: pointer; }
@@ -63,6 +63,8 @@ button { font: inherit; color: inherit; }
 /* 아래: 안내 · 보스 · 도전 상황 · 캠프 버튼 · 원정대 (위에서 아래로 쌓임) */
 #bottom { position: absolute; left: 16px; right: 16px; bottom: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 #hint { text-align: center; font: 16px/1.4 var(--font-display); text-shadow: 0 1px 3px #000, 0 0 14px #000; }
+#hint.tip { max-width: 340px; padding: 8px 14px; border-radius: 14px; background: var(--panel); border: 1px solid rgba(255, 180, 77, .45); font-size: 14.5px; color: #ffe2b0; text-shadow: none; text-wrap: balance; animation: tipin .3s ease-out; }
+@keyframes tipin { from { opacity: 0; transform: translateY(6px); } }
 #bosshp, #modehud { width: min(320px, 100%); text-align: center; font: 14px/1.3 var(--font-display); text-shadow: 0 1px 3px #000; }
 #bosshp { color: #dcd0ff; }
 #modehud { padding: 7px 12px 8px; border-radius: 12px; background: var(--panel); border: 1px solid var(--edge); color: var(--glow); }
@@ -98,9 +100,8 @@ button { font: inherit; color: inherit; }
 .lamp { width: 18px; height: 26px; border-radius: 6px 6px 8px 8px; background: radial-gradient(circle at 50% 60%, #fff3c4, #ffb44d 45%, #b35a12); box-shadow: 0 0 18px 6px rgba(255, 170, 60, .55); flex: none; animation: flicker 2.4s infinite; }
 @keyframes flicker { 0%, 100% { opacity: 1; } 45% { opacity: .82; } 60% { opacity: .95; } }
 .lead { margin: 0 0 16px; font-size: 14.5px; line-height: 1.6; }
-.how { display: grid; grid-template-columns: auto 1fr; gap: 9px 14px; margin: 0 0 18px; font-size: 13.5px; line-height: 1.45; }
-.how dt { font: 14px/1.45 var(--font-display); color: var(--lantern); white-space: nowrap; }
-.how dd { margin: 0; color: var(--ink-dim); }
+.pitch { margin: 0 0 18px; font: 17px/1.5 var(--font-display); }
+.pitch b { font-weight: 400; color: var(--lantern); }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn { flex: 1 1 auto; min-width: 120px; padding: 13px 16px; border-radius: 12px; border: 1px solid transparent; font: 18px/1 var(--font-display); cursor: pointer; }
 .btn.primary { background: var(--lantern); color: var(--lantern-deep); box-shadow: 0 6px 20px rgba(255, 170, 60, .3); }
@@ -166,10 +167,55 @@ button.hcard { cursor: pointer; }
 .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--ink-dim); transition: left .15s; }
 .switch[aria-checked="true"] { background: var(--lantern); }
 .switch[aria-checked="true"]::after { left: 23px; background: var(--lantern-deep); }
+/* 지도 창: 지역 전체 지도 위에 순간이동 표석 단추를 얹는다 */
+.mapbox { position: relative; flex: none; align-self: center; width: min(100%, 44vh); aspect-ratio: 3 / 4; border-radius: 12px; overflow: hidden; border: 1px solid var(--edge); background: #0b0c13; }
+.mapbox canvas { display: block; width: 100%; height: 100%; }
+.pin { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; padding: 0; border-radius: 50%; border: 2px solid #b6ecff; background: rgba(40, 150, 220, .88); box-shadow: 0 0 12px rgba(90, 209, 255, .6); cursor: pointer; }
+.pin::after { content: ""; position: absolute; inset: 9px; background: #dff6ff; transform: rotate(45deg); border-radius: 2px; }
+.pin.home { border-color: #ffe3b3; background: rgba(200, 130, 40, .92); box-shadow: 0 0 12px rgba(255, 180, 77, .6); }
+.pin.home::after { border-radius: 50%; transform: none; background: #ffe3b3; }
+.pin:focus-visible { outline: 3px solid #fff3c4; outline-offset: 2px; }
+/* 게임 방법: 그림(SVG)은 ui.js의 GUIDE가 만들고, 움직임은 아래 .g-* 가 맡는다 */
+.gpage { gap: 12px; }   /* 화면이 낮으면 그림과 글만 스크롤된다 */
+.gfig { display: block; flex: none; width: 100%; height: auto; border-radius: 14px; background: #1b2a1d; }
+.gfig text { font-family: var(--font-display); }
+.g-title { margin: 0; font: 22px/1.25 var(--font-display); font-weight: 400; color: var(--glow); }
+.g-body { margin: 0; min-height: 8em; font-size: 14.5px; line-height: 1.6; }
+.g-body .dim { display: block; margin-top: 4px; }
+.dots { display: flex; justify-content: center; gap: 7px; }
+.dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .18); }
+.dots i.on { background: var(--lantern); }
+.g-scroll { animation: g-scroll 7s linear infinite; }
+@keyframes g-scroll { to { transform: translateX(-300px); } }
+.g-bob { animation: g-bob .45s ease-in-out infinite alternate; }
+@keyframes g-bob { to { transform: translateY(-3px); } }
+.g-knob { animation: g-knob 2.8s ease-in-out infinite; }
+@keyframes g-knob { 0%, 8% { transform: none; } 30%, 88% { transform: translate(16px, -7px); } }
+.g-ripple, .g-pulse, .g-build { transform-box: fill-box; transform-origin: center; }
+.g-ripple { animation: g-ripple 1.4s ease-out infinite; }
+@keyframes g-ripple { from { transform: scale(.7); opacity: .9; } to { transform: scale(1.9); opacity: 0; } }
+.g-blink { animation: g-blink .9s linear infinite; }
+@keyframes g-blink { 0%, 55%, 100% { opacity: 0; } 12%, 38% { opacity: 1; } }
+.g-hit { animation: g-hit .9s linear infinite; }
+@keyframes g-hit { 0%, 30%, 100% { transform: none; } 16% { transform: translateX(4px); } }
+.g-shot { animation: g-shot 1s linear infinite; }
+@keyframes g-shot { 0% { transform: none; opacity: 0; } 10%, 85% { opacity: 1; } 100% { transform: translate(100px, 13px); opacity: 0; } }
+.g-float { animation: g-float 1.2s ease-out infinite; }
+@keyframes g-float { 0% { transform: none; opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-16px); opacity: 0; } }
+.g-token { animation: g-token 1.1s ease-in infinite; }
+@keyframes g-token { 0% { transform: none; opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-40px); opacity: 0; } }
+.g-build { transform-origin: 50% 100%; animation: g-build 3s ease-out infinite; }
+@keyframes g-build { 0%, 25% { transform: scaleY(.5); } 60%, 100% { transform: none; } }
+.g-pulse { animation: g-pulse 1s ease-in-out infinite alternate; }
+@keyframes g-pulse { to { transform: scale(1.2); } }
+.g-drift { animation: g-drift 4s ease-in-out infinite alternate; }
+@keyframes g-drift { to { transform: translateX(9px); } }
+.g-dash { animation: g-dash 1s linear infinite; }
+@keyframes g-dash { to { stroke-dashoffset: -20; } }
 /* 절전 모드 */
 #sleep { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(4, 5, 10, .86); pointer-events: auto; text-align: center; font: 16px/1.6 var(--font-display); color: var(--ink-dim); }
 #sleep b { display: block; font-size: 24px; font-weight: 400; color: var(--glow); }
-@media (prefers-reduced-motion: reduce) { .lamp, .res.bump, #quest.flash, #party.nudge .chip { animation: none; } .toast { animation: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .lamp, .res.bump, #quest.flash, #party.nudge .chip, #hint.tip, .gfig * { animation: none; } .toast { animation: none; opacity: 1; } }
 </style>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0f111a">
@@ -196,8 +242,8 @@ button.hcard { cursor: pointer; }
         <div id="quest"><span class="ql">목표</span><span id="qt"></span><span class="qp" id="qp"></span></div>
       </div>
       <div id="mapbox">
-        <canvas id="mini" width="92" height="92" aria-label="지도"></canvas>
-        <span class="pill" id="fogpct">안개 걷힘 0%</span>
+        <canvas id="mini" width="92" height="92" role="button" aria-label="지도 열기"></canvas>
+        <span class="pill" id="fogpct">정화 0/0</span>
         <span class="pill" id="chestcnt">상자 0/25</span>
         <div class="minibtns">
           <button class="mbtn" id="btn-home" type="button" hidden>귀환</button>
@@ -217,18 +263,14 @@ button.hcard { cursor: pointer; }
 
   <div id="title" class="overlay">
     <div class="card" role="dialog" aria-labelledby="title-h">
-      <p class="eyebrow">한 손 원정 RPG · 프로토타입 0.3</p>
+      <p class="eyebrow">한 손 원정 RPG · 프로토타입 0.4</p>
       <h1 id="title-h"><span class="lamp" aria-hidden="true"></span>등불 원정대</h1>
-      <p class="lead">안개가 왕국을 삼켰습니다. 마지막 등불을 든 원정대를 이끌고 안개를 걷어 내세요. 마을을 다시 세우고, 폐허의 안개 군주를 물리친 뒤 바다 건너 서리 군도로 나아가세요.</p>
-      <dl class="how">
-        <dt>끌기</dt><dd>원정대가 움직여요. 움직이는 동안에는 싸우지 않아요.</dd>
-        <dt>손 떼기</dt><dd>멈추면 영웅들이 알아서 싸우고, 나무와 돌을 캐고, 상자를 열어요.</dd>
-        <dt>발판에 멈추기</dt><dd>마을 건물을 짓고 강화해요. 주점·수호상·생산소·도전의 문은 창이 열려요.</dd>
-        <dt>원정대 칸</dt><dd>누르면 영웅 레벨업과 출전 영웅을 고를 수 있어요.</dd>
-      </dl>
+      <p class="lead">안개가 왕국을 삼켰습니다. 마지막 등불을 든 원정대를 이끌고 마을을 다시 세우세요. 폐허의 안개 군주를 물리치면 바다 건너 서리 군도로 가는 길이 열려요.</p>
+      <p class="pitch"><b>끌면</b> 움직이고, <b>멈추면</b> 영웅들이 알아서 싸워요.</p>
       <div class="btns">
         <button class="btn primary" id="btn-continue" type="button" hidden>이어서 하기</button>
         <button class="btn primary" id="btn-new" type="button">출발</button>
+        <button class="btn ghost" id="btn-guide" type="button">게임 방법</button>
       </div>
       <p class="small">PC에서는 마우스로 끌거나 WASD · 방향키로 움직여요.</p>
     </div>
@@ -245,7 +287,7 @@ button.hcard { cursor: pointer; }
         <div><b id="s-time">0:00</b><span>걸린 시간</span></div>
         <div><b id="s-kills">0</b><span>물리친 몬스터</span></div>
         <div><b id="s-party">2명</b><span>원정대</span></div>
-        <div><b id="s-fog">0%</b><span>안개 걷힘</span></div>
+        <div><b id="s-fog">0/0</b><span>걷은 안개</span></div>
       </div>
       <div class="btns"><button class="btn primary" id="btn-keep" type="button">계속 탐험</button></div>
     </div>

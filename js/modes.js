@@ -232,7 +232,7 @@ function grantRewards(r) {
 function leaveMode(next) {
   if (!mode) return;
   const back = mode.back;
-  for (const p of pickups) if (p.x > WORLD) { p.got = true; collectPickup(p); }   // 경기장에 남은 전리품은 챙겨 간다
+  for (const p of pickups) if (p.x > WORLD_W) { p.got = true; collectPickup(p); }   // 경기장에 남은 전리품은 챙겨 간다
   pickups = pickups.filter(p => !p.got);
   monsters = monsters.filter(m => !m.arena);
   heroes = heroes.filter(h => !h.clone);

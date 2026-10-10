@@ -51,13 +51,15 @@ function tuft(x, y, c) {
   ctx.stroke();
 }
 function drawDetails(v) {
-  const C = 90, M = WORLD / C - 1, R = REG();
-  const cx0 = clamp(Math.floor(v.x0 / C), 0, M), cx1 = clamp(Math.floor(v.x1 / C), 0, M);
-  const cy0 = clamp(Math.floor(v.y0 / C), 0, M), cy1 = clamp(Math.floor(v.y1 / C), 0, M);
+  const C = 90, MX = WORLD_W / C - 1, MY = WORLD_H / C - 1, R = REG();
+  const cx0 = clamp(Math.floor(v.x0 / C), 0, MX), cx1 = clamp(Math.floor(v.x1 / C), 0, MX);
+  const cy0 = clamp(Math.floor(v.y0 / C), 0, MY), cy1 = clamp(Math.floor(v.y1 / C), 0, MY);
   ctx.lineCap = 'round';
   for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
     const h = hash2(cx, cy), h2 = hash2(cy + 991, cx + 17);
-    const x = cx * C + h * C, y = cy * C + h2 * C, z = zoneAt(x, y);
+    const x = cx * C + h * C, y = cy * C + h2 * C;
+    if (!canWalk(x, y) || !tileAt(x, y - 34) || !tileAt(x - 30, y) || !tileAt(x + 30, y)) continue;   // 산과 안개 위에는 그리지 않는다
+    const z = zoneAt(x, y);
     if (z === 0) { if (h > 0.6) ell(x, y, 4, 2.5, 'rgba(160,135,100,.5)'); continue; }
     if (z === 1) {
       tuft(x, y, R.tuft[0]); if (h > 0.55) tuft(x - 26, y + 18, R.tuft[0]);
@@ -73,9 +75,8 @@ function drawDetails(v) {
   }
 }
 function drawFence() {
-  const roads = [0, 1, 2, 3].map(k => -Math.PI / 4 + k * Math.PI / 2);
-  for (let a = 0; a < TAU; a += 0.08) {
-    if (roads.some(r => Math.abs(Math.atan2(Math.sin(a - r), Math.cos(a - r))) < 0.16)) continue;
+  for (let a = 0; a < TAU; a += 0.08) {   // 길이 나가는 쪽만 울타리를 비운다
+    if (villageExits.some(r => Math.abs(Math.atan2(Math.sin(a - r), Math.cos(a - r))) < 0.24)) continue;
     const x = VC.x + Math.cos(a) * (VILLAGE_R + 5), y = VC.y + Math.sin(a) * (VILLAGE_R + 5);
     ctx.fillStyle = '#5a4030'; ctx.fillRect(x - 3, y - 16, 6, 16);
     ctx.fillStyle = '#7a5a40'; ctx.fillRect(x - 3, y - 18, 6, 4);
@@ -270,6 +271,66 @@ function drawCamp() {
   const f = 1 + Math.sin(now * 12) * 0.15;
   poly([-6, 0, 0, -14 * f, 6, 0], '#ff9a3d'); poly([-3, 0, 0, -8 * f, 3, 0], '#ffe08a');
   ctx.restore();
+}
+function drawMagic(g) {   // 정화 마법진 (drawGate는 '도전의 문' 건물 그림이다)
+  const ok = reqDone(g), on = state === 'play' && !P.moving && d2(P.x, P.y, g.x, g.y) < 58 * 58;
+  ctx.save(); ctx.translate(g.x, g.y);
+  ell(0, 0, 54, 23, ok ? 'rgba(110,235,255,0.3)' : on ? 'rgba(110,220,255,0.2)' : 'rgba(110,200,255,0.12)');
+  ctx.strokeStyle = ok ? '#9ff5ff' : 'rgba(140,220,255,0.75)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.ellipse(0, 0, 54, 23, 0, 0, TAU); ctx.stroke();
+  ctx.setLineDash([9, 7]); ctx.lineDashOffset = -now * 16; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(0, 0, 38, 16, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(-16, 0); ctx.lineTo(0, -8); ctx.lineTo(16, 0); ctx.lineTo(0, 8); ctx.closePath(); ctx.stroke();
+  if (g.req.type === 'pay') {   // 바친 만큼 테두리가 찬다
+    let tot = 0, got = 0;
+    for (const k in g.req.cost) { tot += g.req.cost[k]; got += Math.min(g.req.cost[k], g.paid[k]); }
+    if (got) { ctx.strokeStyle = '#ffcf6b'; ctx.lineWidth = 5; ctx.beginPath(); ctx.ellipse(0, 0, 54, 23, 0, -Math.PI / 2, -Math.PI / 2 + TAU * got / tot); ctx.stroke(); }
+  }
+  if (ok) for (let k = 0; k < 5; k++) { const ph = (now * 0.6 + k / 5) % 1; circ(Math.sin(k * 2.4 + now) * 32, -ph * 50, 2.4, `rgba(170,245,255,${1 - ph})`); }
+  ctx.restore();
+}
+function drawWay(w) {   // 순간이동 표석
+  ctx.save(); ctx.translate(w.x, w.y);
+  shadowAt(0, 2, 18);
+  poly([-15, 0, -10, -12, 10, -12, 15, 0], '#6a6f82'); ctx.fillStyle = '#8b90a4'; ctx.fillRect(-10, -15, 20, 4);
+  const b = Math.sin(now * 2.2 + w.i) * 3;
+  poly([0, -58 + b, 11, -40 + b, 0, -22 + b, -11, -40 + b], '#5ad1ff'); poly([0, -58 + b, 11, -40 + b, 0, -40 + b], '#b6ecff');
+  ctx.globalAlpha = 0.3 + 0.15 * Math.sin(now * 3 + w.i); circ(0, -40 + b, 22, 'rgba(110,210,255,0.5)');
+  ctx.restore();
+}
+
+// ================= 바닥 그림 · 안개 =================
+function cellRange(v) { return [clamp(Math.floor(v.x0 / CELL), 0, GRID_W - 1), clamp(Math.floor(v.x1 / CELL), 0, GRID_W - 1), clamp(Math.floor(v.y0 / CELL), 0, GRID_H - 1), clamp(Math.floor(v.y1 / CELL), 0, GRID_H - 1)]; }
+function drawGround(v) {
+  const [c0, c1, r0, r1] = cellRange(v);
+  chunkCap = Math.max(chunkCap, (c1 - c0 + 1) * (r1 - r0 + 1) + 4);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) ctx.drawImage(groundChunk(r * GRID_W + c), c * CELL, r * CELL, CELL + 0.6, CELL + 0.6);
+}
+// 안개: 아직 걷히지 않은 구역의 땅 모양을 따라 덮는다. 길목은 구역 경계에서 살짝 넘치게 덮어, 마법진 바로 앞에서 길이 끊긴 것처럼 보이게 한다
+function drawFog(v) {
+  const [c0, c1, r0, r1] = cellRange(v), col = REG().fog;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    const s = sectors[cellSec[r * GRID_W + c]];
+    if (!s || (s.open && s.fade <= 0)) continue;
+    const blob = k => {
+      ctx.beginPath();
+      for (let i = 0; i < 36; i++) { const a = i / 36 * TAU, rr = Math.min(blobR(s, a) * k + 26, CELL * 0.56) * (1 + 0.025 * Math.sin(now * 0.8 + i * 1.7 + s.id)); if (i) ctx.lineTo(s.x + Math.cos(a) * rr, s.y + Math.sin(a) * rr); else ctx.moveTo(s.x + Math.cos(a) * rr, s.y + Math.sin(a) * rr); }
+      ctx.closePath(); ctx.fill();
+    };
+    const road = (p, q, t0, t1, w) => { ctx.beginPath(); for (let t = t0; t <= t1 + 0.001; t += 0.04) { const o = neck(p, q, t); if (t === t0) ctx.moveTo(o.x, o.y); else ctx.lineTo(o.x, o.y); } ctx.lineWidth = w; ctx.stroke(); };
+    const a = s.open ? s.fade : 1;
+    ctx.fillStyle = ctx.strokeStyle = `rgba(${col},${0.5 * a})`;
+    // 길목을 덮는 선은 끝이 둥글어서 반지름만큼 더 나온다. 구역 경계에서 60px(옅은 층) · 30px(짙은 층)까지만 넘치게 시작점을 잡는다 (마법진은 125px 앞)
+    blob(1.1); road(sectors[s.parent], s, 0.5 + 90 / CELL, 1, 300);
+    for (const kid of s.kids) road(s, sectors[kid], 0, 0.5, 300);
+    ctx.fillStyle = ctx.strokeStyle = `rgba(${col},${a})`;
+    blob(1); road(sectors[s.parent], s, 0.5 + 95 / CELL, 1, 250);
+    for (const kid of s.kids) road(s, sectors[kid], 0, 0.5, 250);
+    // 안에서 느릿하게 떠도는 옅은 덩이
+    ctx.fillStyle = `rgba(255,255,255,${0.07 * a})`;
+    for (let k = 0; k < 4; k++) { const an = now * 0.12 + k * 1.57 + s.id, rr = 90 + k * 45; ctx.beginPath(); ctx.ellipse(s.x + Math.cos(an) * rr, s.y + Math.sin(an * 1.3) * rr * 0.7, 120, 60, 0, 0, TAU); ctx.fill(); }
+  }
 }
 
 // ================= 영웅 =================
@@ -599,6 +660,22 @@ function drawWorldUI(v) {
       if (cost) drawCostRow(['wood', 'stone', 'gold'].map(k => [k, (cost[k] || 0) - (p.kind === 'panel' ? 0 : paid[p.id][k])]).filter(([, n]) => n > 0), s.x, s.y + 36);
     }
   }
+  if (!mode) {
+    for (const g of gates) {   // 정화 마법진: 이름과 조건 팻말
+      if (!gateLive(g) || !inView(g, v)) continue;
+      const s = w2s(g.x, g.y + 36), t = w2s(g.x, g.y - 74), ok = reqDone(g), pay = g.req.type === 'pay' && !ok;
+      outlineText('정화 마법진', s.x, s.y, 13, '#bff3ff');
+      const l1 = (ok ? '✓ ' : '') + (pay ? '자원 바치기' : reqText(g)), l2 = ok ? '멈춰 서면 안개가 걷혀요' : pay ? ' ' : reqProg(g);
+      ctx.font = `13px ${FONT}`; const w1 = ctx.measureText(l1).width;
+      ctx.font = `11.5px ${FONT}`; const w = Math.max(w1, ctx.measureText(l2).width, pay ? 96 : 0) + 22, h = l2 ? 42 : 26;
+      ctx.fillStyle = 'rgba(16,18,28,0.86)'; ctx.beginPath(); ctx.roundRect(t.x - w / 2, t.y - h / 2, w, h, 9); ctx.fill();
+      ctx.strokeStyle = ok ? 'rgba(159,245,255,0.9)' : 'rgba(255,196,120,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
+      outlineText(l1, t.x, l2 ? t.y - 9 : t.y, 13, ok ? '#9ff5ff' : '#ffe3b3');
+      if (pay) drawCostRow(Object.keys(g.req.cost).map(k => [k, g.req.cost[k] - g.paid[k]]).filter(([, n]) => n > 0), t.x, t.y + 10);
+      else if (l2) outlineText(l2, t.x, t.y + 10, 11.5, ok ? '#d9fbff' : '#d6cab3');
+    }
+    for (const w of waypoints) if (sectors[w.sec].open && w.sec && inView(w, v)) { const s = w2s(w.x, w.y + 18); outlineText(w.name, s.x, s.y, 12, '#bfe9ff'); }
+  }
   if (!mode) for (const p of portals) {
     if (!inView(p, v) || !isRevealed(p.x, p.y)) continue;
     const s = w2s(p.x, p.y + 30);
@@ -636,7 +713,7 @@ function edgeMarker(tg, color, label, small) {   // 대상이 화면 밖이면 �
 }
 function drawMarkers() {
   if (state !== 'play' || mode) return;
-  const q = QUESTS[questIdx], tg = q.target && q.target();
+  const tg = curObj && curObj.target;
   if (tg) edgeMarker(tg, '#ffb44d', `${Math.round(Math.hypot(tg.x - P.x, tg.y - P.y) / 10)}m`);
   if (daily.chests < CHESTS_PER_DAY) {   // 가장 가까운 닫힌 상자
     let best = null, bd = 1600 * 1600;
@@ -645,7 +722,19 @@ function drawMarkers() {
   }
 }
 function drawJoystick() {
-  if (!joy.active || state !== 'play') return;
+  if (state !== 'play') return;
+  if (!joy.active) {   // 첫 목표 동안 아직 움직여 본 적이 없으면, 끄는 시늉을 되풀이해 보여 준다
+    if (movedOnce || mode || kills > 0) return;
+    const k = reduceMotion ? 0.6 : (now * 0.55) % 1, e = clamp((k - 0.15) / 0.3, 0, 1), s = e * e * (3 - 2 * e);
+    const bx = VW / 2, by = VH * 0.6, kx = bx + s * JR * 0.75, ky = by - s * JR * 0.3;
+    ctx.globalAlpha = clamp(Math.min(k * 8, (1 - k) * 5), 0, 1);
+    ctx.fillStyle = 'rgba(255,240,220,0.1)'; ctx.beginPath(); ctx.arc(bx, by, JR, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,200,130,0.5)'; ctx.lineWidth = 2; ctx.stroke();
+    circ(kx, ky, 22, 'rgba(255,180,77,0.6)');
+    ctx.strokeStyle = 'rgba(255,243,196,0.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(kx, ky, 27 + 3 * Math.sin(now * 6), 0, TAU); ctx.stroke();
+    ctx.globalAlpha = 1;
+    return;
+  }
   ctx.fillStyle = 'rgba(255,240,220,0.07)'; ctx.beginPath(); ctx.arc(joy.bx, joy.by, JR, 0, TAU); ctx.fill();
   ctx.strokeStyle = 'rgba(255,200,130,0.35)'; ctx.lineWidth = 2; ctx.stroke();
   circ(joy.bx + joy.dx * JR, joy.by + joy.dy * JR, 22, 'rgba(255,180,77,0.55)');
@@ -655,17 +744,17 @@ function drawJoystick() {
 function render() {
   shx = cam.shake ? rand(-1, 1) * cam.shake * 0.5 : 0; shy = cam.shake ? rand(-1, 1) * cam.shake * 0.5 : 0;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = '#0a0c14'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = mode ? '#0a0c14' : shade(REG().rock[0], -0.4); ctx.fillRect(0, 0, cv.width, cv.height);
   const v = viewRect();
   setWorld();
   ctx.imageSmoothingEnabled = true;
-  const x0 = clamp(v.x0, 0, WORLD), y0 = clamp(v.y0, 0, WORLD), x1 = clamp(v.x1, 0, WORLD), y1 = clamp(v.y1, 0, WORLD);
-  const world = !mode && x1 > x0 && y1 > y0;
-  if (world) { ctx.drawImage(ground, x0 * GS, y0 * GS, (x1 - x0) * GS, (y1 - y0) * GS, x0, y0, x1 - x0, y1 - y0); drawDetails(v); }
+  const world = !mode;
+  if (world) { drawGround(v); drawDetails(v); }
   if (mode) drawArena();
   const nv = !mode && nearVillage(v);
   if (nv) { drawFence(); drawPads(); }
   if (!mode) {
+    for (const g of gates) if (gateLive(g) && inView(g, v)) drawMagic(g);
     for (const p of portals) if (inView(p, v)) drawPortal(p);
     if (camp) drawCamp();
   }
@@ -681,6 +770,7 @@ function render() {
   if (!mode) {
     for (const n of nodes) if (inView(n, v)) list.push(n);
     for (const c of chests) if (inView(c, v)) list.push(c);
+    for (const w of waypoints) if (sectors[w.sec].open && inView(w, v)) list.push(w);
   }
   for (const m of monsters) if (inView(m, v)) list.push(m);
   for (const h of heroes) list.push(h);
@@ -693,6 +783,7 @@ function render() {
     else if (e.isNode) drawNode(e);
     else if (e.isStatue) drawDefStatue(e);
     else if (e.isBuilding) drawBuilding(e);
+    else if (e.isWay) drawWay(e);
     else drawChest(e);
   }
   for (const p of projs) drawProj(p);
@@ -701,7 +792,7 @@ function render() {
   for (const f of fxs) drawFx(f);
   if (settings.effects) for (const p of parts) { ctx.globalAlpha = clamp(p.life / p.max * 1.5, 0, 1); ctx.fillStyle = p.c; ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
   ctx.globalAlpha = 1;
-  if (world) { ctx.globalAlpha = 0.97; ctx.drawImage(fog, x0 / FOGS, y0 / FOGS, (x1 - x0) / FOGS, (y1 - y0) / FOGS, x0, y0, x1 - x0, y1 - y0); ctx.globalAlpha = 1; }
+  if (world) drawFog(v);
   drawDarkness();
   drawWorldUI(v);
   setScreen();

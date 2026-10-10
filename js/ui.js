@@ -573,12 +573,19 @@ const PANELS = {
       return head('설정') +
         `<div class="scroll">${sw('dmgText', '데미지 숫자', '맞을 때 뜨는 숫자를 보여 줘요')}${sw('effects', '효과', '파편 · 화면 흔들림을 보여 줘요. 끄면 가벼워져요')}${sw('powerSave', '절전 모드', '3분 동안 손대지 않으면 화면을 어둡게 하고 덜 그려요')}` +
         '<div class="row"><span></span><div class="rmain"><b style="font:15px/1.3 var(--font-display)">게임 방법</b><span class="dim">조작법과 목표를 다시 보고, 도움말도 처음부터 다시 받아요</span></div><button class="btn xs ghost" type="button" data-act="guide">보기</button></div>' +
-        `<div class="row"><span></span><div class="rmain"><b style="font:15px/1.3 var(--font-display)">플레이 기록</b><span class="dim">안개를 걷을 때마다 걸린 시간과 그때의 레벨을 적어 둬요 (지금 ${plog.length}줄). 복사해서 Claude에게 붙여 주면 밸런스를 맞추는 근거가 돼요</span></div><button class="btn xs ghost" type="button" data-act="log">복사</button></div></div>` +
+        `<div class="row"><span></span><div class="rmain"><b style="font:15px/1.3 var(--font-display)">플레이 기록</b><span class="dim">안개를 걷을 때마다 걸린 시간과 그때의 레벨을 적어 둬요 (지금 ${plog.length}줄). 복사해서 Claude에게 붙여 주면 밸런스를 맞추는 근거가 돼요</span></div><button class="btn xs ghost" type="button" data-act="log">복사</button></div>` +
+        `<div class="row"><span></span><div class="rmain"><b style="font:15px/1.3 var(--font-display)">처음부터 다시 시작</b><span class="dim">영웅 · 건물 · 자원 · 걷은 안개 · 플레이 기록을 모두 지워요</span></div><button class="btn xs ghost" type="button" data-act="wipe"${mode ? ' disabled' : ''}>${panelArg === 'wipe' ? '정말 지우기' : '지우기'}</button></div></div>` +
         (panelMsg ? (panelMsg[0] === '{' ? `<textarea class="logbox" readonly aria-label="플레이 기록">${panelMsg.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</textarea><p class="small">복사가 막혀 있어요. 위 글을 길게 눌러 전체 선택한 뒤 복사해 주세요.</p>` : `<p class="result">${panelMsg}</p>`) : '') +
         `<p class="small">설정은 이 기기에만 저장돼요. · 판 ${VERSION}</p><div class="btns"><button class="btn ghost" type="button" data-act="close">닫기</button></div>`;
     },
     act(a, k) {
       if (a === 'guide') { settings.tips = {}; saveSettings(); closePanel(true); openPanel('guide', 0); return; }
+      if (a === 'wipe') {   // 한 번 누르면 "정말 지우기"로 바뀌고, 한 번 더 눌러야 지워진다
+        if (panelArg !== 'wipe') { panelArg = 'wipe'; renderPanel(); return; }
+        wipeSave(); panel = null; sheet.hidden = true;
+        newGame(); startPlay(); saveLocal(); toast('처음부터 다시 시작해요');
+        return;
+      }
       if (a === 'log') {
         const text = playLogText(), done = ok => { if (panel !== 'settings') return; panelMsg = ok ? `플레이 기록을 복사했어요. Claude와의 대화에 붙여 넣어 주세요.` : text; renderPanel(); };
         if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => done(true), () => done(false)); else done(false);
@@ -845,6 +852,9 @@ function restore(s) {
   recalcGear();
   heroes.forEach(h => { h.hp = h.maxHp; });
 }
+function wipeSave() {   // 세이브를 지운다. 지우기 전 것은 한 벌 남겨 둔다 (SAVE_KEY + '-backup')
+  try { const old = localStorage.getItem(SAVE_KEY); if (old) localStorage.setItem(SAVE_KEY + '-backup', old); localStorage.removeItem(SAVE_KEY); } catch (_) { /* 무시 */ }
+}
 function saveLocal() { if (state === 'title' || !res) return; try { localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); } catch (_) { /* 저장이 막힌 환경에서도 게임은 계속된다 */ } }
 function loadLocal() { try { const t = localStorage.getItem(SAVE_KEY); return t ? JSON.parse(t) : null; } catch (_) { return null; } }
 function offlineReport(savedAt) {
@@ -919,6 +929,8 @@ function boot(data) {
     const words = [...PADS.map(p => p.name + p.effect), ...HERO_DEFS.map(d => d.name + d.s1.name + d.s2.name + (d.s4 ? d.s4.name : '')), Object.values(MON).map(m => m.name).join(''), '정화 마법진 자원 바치기 멈춰 서면 안개가 걷혀요 마리 처치 길목을 지키는 주점에서 영웅 한 명을 로 지금 표석 들판 숲 폐허 마을 ✓', '모집 최고 레벨 부활 쓰러짐 정예 던전 상자 수호상 기절 과다 출혈 폭발 결빙 회피 원정대가 모두 쓰러졌습니다 마을 등불 아래로 돌아갑니다 배 만들기 멈추면 항해 수확할 자원 개 부위 장착 웨이브 층 우두머리 등장 기다려요 용병단 부터 오늘 번 남음 0123456789m+!%'].join('');
     document.fonts.load(`16px ${FONT}`, words).catch(() => {});
   }
+  // 주소 끝에 ?reset=1 을 붙여 열면 세이브를 지우고 시작한다. 다시 열 때 또 지워지지 않게 주소에서 그 표시는 뗀다
+  if (/[?&]reset=1(&|$)/.test(location.search)) { wipeSave(); try { history.replaceState(null, '', location.pathname); } catch (_) { /* 무시 */ } }
   let resumed = false;
   if (data && data.save) { try { restore(data.save); startPlay(); resumed = true; } catch (_) { newGame(); } }
   if (!resumed) showTitle();

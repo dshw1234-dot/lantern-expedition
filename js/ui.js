@@ -31,7 +31,9 @@ const TIPS = {
   elite: '금빛 테두리는 정예 몬스터예요. 훨씬 강하지만 장비를 떨어뜨려요',
   chest: '보물상자 옆에 멈춰 서면 열려요',
   map: '오른쪽 위 지도를 누르면 표석으로 순간이동할 수 있어요',
+  meat: '고기가 쌓였어요. 영웅 레벨업에 쓰고, 마을 생산소에서 벌목장을 강화하는 데도 써요',
 };
+const MEAT_TIP = 300;   // 고기가 이만큼 모이면 쓸 곳을 한 번 알려 준다
 const tipQueue = [];
 let tipText = '', tipT = 0, idleN = 0;
 function tip(id, urgent) {   // urgent = 곧바로 띄운다. 차례를 기다리던 도움말은 못 본 것으로 되돌려 다음 기회에 다시 뜨게 한다
@@ -46,6 +48,7 @@ function tipCheck() {   // 필드에서 1초마다: 조건을 살펴야 알 수 
   if (!T.elite && near(monsters, 380, m => m.elite && !m.dead && isRevealed(m.x, m.y))) tip('elite');
   if (!T.chest && daily.chests < CHESTS_PER_DAY && near(chests, 240, c => !c.opened && isRevealed(c.x, c.y))) tip('chest');
   if (!T.flee && near(monsters, 450, m => m.state === 'chase') && heroes.reduce((s, h) => s + (h.down ? 0 : h.hp / h.maxHp), 0) / heroes.length < 0.35) tip('flee');
+  if (!T.meat && res.meat >= MEAT_TIP) tip('meat');
   if (!T.idle) {
     const nothing = !P.moving && !inVillage(P.x, P.y, 80) && heroes.every(h => h.down || !h.target) && !!(curObj && curObj.target) && !gates.some(g => gateLive(g) && d2(g.x, g.y, P.x, P.y) < 90 * 90);
     idleN = nothing ? idleN + 1 : 0;
@@ -452,7 +455,7 @@ const PANELS = {
       const sc = storeCost(prod.store + 1), smax = prod.store >= STORE_MAX;
       const total = PROD.reduce((a, p) => a + Math.floor(prod[p.id].stored), 0);
       return head('생산소') +
-        '<p class="panel-sub">게임을 꺼 둔 동안에도 실제 시간으로 쌓여요. 창고가 클수록 오래 쌓아 둘 수 있어요.</p>' +
+        '<p class="panel-sub">게임을 꺼 둔 동안에도 실제 시간으로 쌓여요. 창고가 클수록 오래 쌓아 둘 수 있어요. 벌목장은 고기로, 광산은 나무로, 금화 생산소는 돌로 강화해요.</p>' +
         `<div class="scroll">${rows}<div class="row"><span class="face" style="--c:#7d6246"></span><div class="rmain"><div class="rline"><b>창고</b><span class="dim">Lv${prod.store} · ${2 + prod.store}시간치 보관</span></div><div class="cost">${smax ? '<span class="dim">최고 레벨</span>' : '강화: ' + costHtml(sc)}</div></div>` +
         `<div class="rside">${smax ? '' : `<button class="btn sm primary" type="button" data-act="store"${canPay(sc) ? '' : ' disabled'}>강화</button>`}</div></div></div>` +
         `<p class="result">${panelMsg}</p><div class="btns"><button class="btn primary" type="button" data-act="collect"${total ? '' : ' disabled'}>모두 수확 (${total})</button><button class="btn ghost" type="button" data-act="close">닫기</button></div>`;
@@ -785,8 +788,9 @@ $('btn-home').addEventListener('click', () => {   // 귀환 포털: 마을로 �
 // 밸런스를 맞출 때 보는 글: 지금 상태 한 줄 + 안개를 걷을 때마다 적어 둔 기록 (cols가 각 칸의 뜻)
 function playLogText() {
   return JSON.stringify({ game: 'lantern', ver: VERSION, t: Math.round(playTime), kills, region: regionIdx, open: [openCount(), sectors.length - 1], squad: squad.lvl,
-    heroes: roster.map(r => (r.owned ? r.lvl : 0)), lv, res: Object.fromEntries(Object.keys(res).map(k => [k, Math.floor(res[k])])), next: objective().text,
-    cols: 'region,sec,depth,type,t,dt,squad,maxHero,sumHero,owned,forge,barracks,lantern,kills', log: plog });
+    heroes: roster.map(r => (r.owned ? r.lvl : 0)), shards: roster.map(r => r.shards), lv, prod: { wood: prod.wood.lvl, stone: prod.stone.lvl, gold: prod.gold.lvl, store: prod.store },
+    res: Object.fromEntries(Object.keys(res).map(k => [k, Math.floor(res[k])])), earned: Object.fromEntries(Object.keys(life).map(k => [k, Math.round(life[k])])), pulls: pub.pulls, next: objective().text,
+    cols: 'region,sec,depth,type,t,dt,squad,maxHero,sumHero,owned,forge,barracks,lantern,kills,woodEarned,stoneEarned,goldEarned,meatEarned,xpEarned,pulls', log: plog });
 }
 function serialize() {
   saveRegionState();

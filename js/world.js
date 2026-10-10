@@ -301,10 +301,12 @@ function genWorld(r) {
     if (t === 2) add({ type: 'gather', res: 'wood', n: fogCost(2).wood });
     else if (t % 2) add(hunt(sectors[t - 1], misHunt(t)));
     else add(Object.assign({ type: 'gather' }, misGather(t, gk++)));
-    for (const k of ['forge', 'barracks', 'lantern']) { const v = CURVE[k](t); if (v > have[k]) { have[k] = v; add({ type: 'build', pad: k, lv: v }); } }
-    let v = CURVE.owned(t); if (v > have.owned) { have.owned = v; add({ type: 'recruit', n: v }); }
-    v = CURVE.squad(t); if (v > have.squad) { have.squad = v; add({ type: 'squad', lv: v }); }
-    if (t % MIS_HERO_EVERY === 0) add(t % (MIS_HERO_EVERY * 2) ? { type: 'herolv', lv: CURVE.hero(t), cnt: 1 } : { type: 'herolv', lv: CURVE.hero2(t), cnt: 2 });
+    // 표(CURVE)를 어떻게 고치든 채울 수 없는 임무는 나오지 않게, 여기서 최고 레벨 안으로 자른다 (영웅 레벨은 용병단 레벨을 넘지 못하므로 그 임무의 용병단 목표까지)
+    for (const k of ['forge', 'barracks', 'lantern']) { const v = Math.min(PAD[k].max, CURVE[k](t)); if (v > have[k]) { have[k] = v; add({ type: 'build', pad: k, lv: v }); } }
+    let v = Math.min(HERO_DEFS.length, CURVE.owned(t)); if (v > have.owned) { have.owned = v; add({ type: 'recruit', n: v }); }
+    v = Math.min(SQUAD_MAX_LV, CURVE.squad(t)); if (v > have.squad) { have.squad = v; add({ type: 'squad', lv: v }); }
+    const cap = Math.min(MAX_HERO_LV, have.squad);
+    if (t % MIS_HERO_EVERY === 0) add(t % (MIS_HERO_EVERY * 2) ? { type: 'herolv', lv: Math.min(cap, CURVE.hero(t)), cnt: 1 } : { type: 'herolv', lv: Math.min(cap, CURVE.hero2(t)), cnt: 2 });
     s.gate.mi = missions.length;   // 이 마법진은 임무가 여기에 닿아야 쓸 수 있다
     add({ type: 'fog', sec: s.id });
   }
@@ -475,7 +477,7 @@ function newGame() {
   daily = { date: todayStr(), chests: 0, opened: REGIONS.map(() => []), pig: 0, dungeon: 0, defense: 0, campSec: 0 };
   prog = { pigStage: 0, towerBest: 0, seen: 1 };
   regionData = newRegionData();
-  res = { wood: 0, stone: 0, gold: 0, meat: 0 }; life = { wood: 0, stone: 0, gold: 0, meat: 0 };
+  res = { wood: 0, stone: 0, gold: 0, meat: 0 }; life = { wood: 0, stone: 0, gold: 0, meat: 0, xp: 0 };   // life = 지금까지 번 총량 (플레이 기록에 찍힌다)
   paid = {}; for (const p of PADS) paid[p.id] = { wood: 0, stone: 0, gold: 0 };
   kills = 0; maxZone = 0; playTime = 0; now = 0; plog = [];
   movedOnce = false; stoppedOnce = false; winT = 0; wipeT = 0;

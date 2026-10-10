@@ -624,6 +624,7 @@ function separate() {
 
 // ================= 용병단 레벨 =================
 function gainXp(n) {
+  life.xp += n;   // 최고 레벨에 닿은 뒤에도 센다 (경험치 식을 맞출 때 본다)
   if (squad.lvl >= SQUAD_MAX_LV) return;
   squad.xp += n;
   while (squad.lvl < SQUAD_MAX_LV && squad.xp >= xpNeed(squad.lvl)) {
@@ -659,7 +660,7 @@ const dismantleValue = it => Math.round(5 * it.tier * (it.grade + 1));
 function dropItem(it, x, y) { pickups.push({ type: 'gear', item: it, x, y: y - 10, vx: rand(-60, 60), vy: rand(-30, 40), z: 0, vz: 200, t: 0, value: 1 }); }
 function addItem(it) {
   if (gear.bag.length >= BAG_MAX) {
-    const s = dismantleValue(it); res.stone += s; bumpRes('stone');
+    const s = dismantleValue(it); res.stone += s; life.stone += s; bumpRes('stone');
     toast(`가방이 가득 차 ${itemName(it)}을 분해했어요 (돌 +${s})`);
     return;
   }
@@ -685,7 +686,7 @@ function dismantle(id) {
   const k = gear.bag.findIndex(i => i.id === id);
   if (k < 0 || gear.bag[k].lock) return 0;
   const it = gear.bag.splice(k, 1)[0], v = dismantleValue(it);
-  res.stone += v; res.wood += Math.floor(v / 2); bumpRes('stone'); bumpRes('wood');
+  res.stone += v; res.wood += Math.floor(v / 2); life.stone += v; life.wood += Math.floor(v / 2); bumpRes('stone'); bumpRes('wood');
   return v;
 }
 function autoEquip() {
@@ -1058,9 +1059,11 @@ function reqProg(g) {   // 팻말에 적는 짧은 진행 상황
 const gateLive = g => sectors[g.from].open && !sectors[g.sec].open;   // 지금 갈 수 있고 아직 안 걷힌 마법진
 function openGate(g) {
   const s = sectors[g.sec], rw = gateReward(s.depth);
-  // 플레이 기록 한 줄: [지역, 구역, 깊이, 조건, 플레이 시간(초), 이 마법진에 걸린 시간(초), 용병단 Lv, 영웅 최고 Lv, 영웅 Lv 합, 보유 영웅, 대장간, 훈련장, 큰 등불, 처치 수]
+  // 플레이 기록 한 줄: [지역, 구역, 깊이, 조건, 플레이 시간(초), 이 마법진에 걸린 시간(초), 용병단 Lv, 영웅 최고 Lv, 영웅 Lv 합, 보유 영웅, 대장간, 훈련장, 큰 등불, 처치 수,
+  //                       그때까지 번 나무, 돌, 금화, 고기, 경험치 (총량), 주점 모집 횟수]   ← 뒤의 여섯 칸은 0.4.2부터. 수입을 재서 값과 CURVE를 맞추는 데 쓴다
   const lvs = roster.filter(r => r.owned).map(r => r.lvl);
-  plog.push([regionIdx, s.id, s.depth, g.req.type, Math.round(playTime), Math.round(playTime - (g.t0 < 0 ? playTime : g.t0)), squad.lvl, Math.max(...lvs), lvs.reduce((a, b) => a + b, 0), lvs.length, lv.forge, lv.barracks, lv.lantern, kills]);
+  plog.push([regionIdx, s.id, s.depth, g.req.type, Math.round(playTime), Math.round(playTime - (g.t0 < 0 ? playTime : g.t0)), squad.lvl, Math.max(...lvs), lvs.reduce((a, b) => a + b, 0), lvs.length, lv.forge, lv.barracks, lv.lantern, kills,
+    ...['wood', 'stone', 'gold', 'meat', 'xp'].map(k => Math.round(life[k] || 0)), pub.pulls]);
   openSector(s, true);
   res.gold += rw.gold; life.gold += rw.gold; bumpRes('gold'); gainXp(rw.xp);
   toast(`안개가 걷혔어요! 금화 +${rw.gold}${s.way ? ' · 순간이동 표석 발견' : ''}`);

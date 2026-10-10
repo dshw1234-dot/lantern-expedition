@@ -1,7 +1,7 @@
 // 등불 원정대 — 오프라인 실행용 서비스 워커.
 // 앱으로_만들기.py가 __VERSION__ 과 __FILES__ 자리를 채워서 '올릴파일/sw.js'로 내보낸다.
 // 폰은 접속할 때마다 이 파일이 바뀌었는지 확인한다. VERSION이 달라지면 FILES를 통째로 새로 받는다.
-const VERSION = "7978c0ea5b";
+const VERSION = "1e835ae7ea";
 const CACHE = 'lantern-' + VERSION;
 const FONT_CACHE = 'lantern-fonts';   // 글꼴은 판이 바뀌어도 그대로 둔다
 const FILES = ["./", "index.html", "js/combat.js", "js/data.js", "js/modes.js", "js/render.js", "js/ui.js", "js/world.js", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "manifest.webmanifest"];

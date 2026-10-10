@@ -25,16 +25,19 @@ const GATHER = 250;                          // 멈췄을 때 채집하러 가�
 const BOSS_POS = { x: 0, y: 0 };             // 보스 자리. 지역을 만들 때 마지막 구역 한가운데로 정해진다
 const START = { x: VC.x, y: VC.y + 10 };
 const ARENA = { x: WORLD_W + 1500, y: 1800, r: 520 };   // 도전 콘텐츠 전용 경기장 (월드 바깥에 둔다)
-const VERSION = '0.4.1';                     // 설정 창과 플레이 기록에 찍힌다
+const VERSION = '0.4.2';                     // 설정 창과 플레이 기록에 찍힌다
 const SAVE_KEY = 'lantern-expedition-v1';
 const SETTINGS_KEY = 'lantern-expedition-settings';
 const JR = 56;                               // 조이스틱 반경 (px)
 const CHAR_PHONE = 1.2;                      // 스마트폰에서 영웅 · 몬스터를 이만큼 크게 그린다 (화면이 작아 월드가 축소되어 보이기 때문. 판정 크기는 그대로)
 const REVIVE_T = 10;                         // 필드에서 쓰러진 영웅이 일어나기까지 (초)
-const MAX_HERO_LV = 20;
+const MAX_HERO_LV = 30;                      // 영웅 레벨은 용병단 레벨까지만 오른다 (heroCap). 그래서 용병단 최고 레벨과 같게 둔다
 const SKILL2_LV = 5;                         // 두 번째 스킬이 열리는 영웅 레벨
 const SQUAD_MAX_LV = 30;
-const xpNeed = l => Math.round(12 * Math.pow(l, 1.55));   // 용병단 레벨 l → l+1
+// 용병단 레벨 l → l+1에 드는 경험치. Lv5 → 6: 381, Lv10 → 11: 2,010, Lv20 → 21: 10,606, Lv29 → 30: 25,870
+//   2026-10-11 플레이 기록: 예전 값(12 × l^1.55)으로는 20번째 안개(70분)에 Lv30에 닿아 그 뒤 2,200마리의 경험치가 버려졌다.
+//   그 기록의 경험치 흐름을 이 식에 넣으면 10번째 안개 Lv10 · 20번째 Lv15 · 36번째 Lv27쯤으로, CURVE.squad보다 0 ~ 2 앞선다
+const xpNeed = l => Math.round(8 * Math.pow(l, 2.4));
 const CHESTS_PER_DAY = 25;
 const BAG_MAX = 40;
 const CAMP_PER_DAY = 3600;                   // 하루 캠프 시간 (초)
@@ -87,20 +90,29 @@ const HERO_DEFS = [
     s4: { name: '폭풍의 화신', cd: 26, dur: 8, desc: '26초마다 8초 동안 각성: 입히는 피해 2배' } },
 ];
 // 등급: weight = 주점 카드에 나올 비중, shards = 카드 한 장(×1)이 주는 조각
+//   조각은 드문 등급일수록 한 번에 많이 준다 (원작: 노말 10 · 레어 15 · 에픽 30 · 레전더리 50). 드물게 뽑히는 만큼 뽑혔을 때 크게 자라야
+//   "높은 등급을 얻고 싶다"가 목표가 된다. 노말 한 장 = 한 레벨, 레어 한 장 = Lv3, 에픽 한 장 = Lv7, 레전더리 한 장 = Lv12까지 (고기와 용병단 레벨이 받쳐 주면)
+//   예전 값(8 · 6 · 4 · 3)에서는 에픽 한 명이 모집 한 번에 평균 0.045개를 받아서, 뽑아 놓고도 레벨을 올릴 수 없었다
 const RARITY = {
-  normal: { name: '노말',     color: '#d6d3cc', weight: 70,  shards: 8, power: 1,    skills: 1 },
-  rare:   { name: '레어',     color: '#6aaeff', weight: 25,  shards: 6, power: 1.12, skills: 2 },
-  epic:   { name: '에픽',     color: '#bb86ff', weight: 4.5, shards: 4, power: 1.28, skills: 3 },
-  legend: { name: '레전더리', color: '#ffc24d', weight: 0.5, shards: 3, power: 1.5,  skills: 4 },
+  normal: { name: '노말',     color: '#d6d3cc', weight: 70,  shards: 5,  power: 1,    skills: 1 },
+  rare:   { name: '레어',     color: '#6aaeff', weight: 25,  shards: 10, power: 1.12, skills: 2 },
+  epic:   { name: '에픽',     color: '#bb86ff', weight: 4.5, shards: 30, power: 1.28, skills: 3 },
+  legend: { name: '레전더리', color: '#ffc24d', weight: 0.5, shards: 60, power: 1.5,  skills: 4 },
 };   // power = 기본 체력 · 공격력 배율, skills = 쓸 수 있는 스킬 수 (등급이 하나 오를 때마다 하나씩 더)
 const SKILL_LV = [1, 5, 10, 15];             // n번째 스킬이 열리는 영웅 레벨
 const RARITY_KEYS = Object.keys(RARITY);
 const RARITY_TOTAL = RARITY_KEYS.reduce((a, k) => a + RARITY[k].weight, 0);
 // 주점: cost = 모집 1회 금화, refresh = 카드 바꾸기 금화, auto = 자동 교체 간격(게임 시간 초), pity = 이만큼 바꾸면 레전더리 보장
 // 모집 값은 뽑을수록 오른다: base + step × 지금까지 모집한 횟수 (max까지)
-const PUB = { base: 20, step: 2, max: 160, refresh: 10, auto: 90, pity: 50, get cost() { return Math.min(this.max, this.base + this.step * pub.pulls); } };
-// 영웅 레벨업 값: 레벨마다 조각은 1.2배, 고기는 1.22배씩 는다 (Lv1 → 2: 조각 4 · 고기 10, Lv5 → 6: 조각 8 · 고기 22, Lv10 → 11: 조각 21 · 고기 60, Lv19 → 20: 조각 106 · 고기 359)
-const lvCost = l => ({ shards: Math.round(4 * Math.pow(1.2, l - 1)), meat: Math.round(10 * Math.pow(1.22, l - 1)) });
+// 카드 바꾸기는 모집 값의 절반 (원작: 모집 100 · 새로고침 50). 금화 10으로 고정이던 때는 500이면 레전더리 카드가 보장됐다 (천장 50번 × 10)
+const PUB = { base: 20, step: 2, max: 160, auto: 90, pity: 50, get cost() { return Math.min(this.max, this.base + this.step * pub.pulls); }, get refresh() { return Math.round(this.cost / 2); } };
+// 영웅 레벨업 값. 레벨을 막는 것은 고기다 — 조각은 "그 영웅을 뽑았는가"만 가르고, 고기가 "누구를 얼마나 키울까"를 고르게 한다 (원작과 같은 구조)
+//   조각: 원작처럼 계단식. Lv1 ~ 10에서 올릴 때는 5, Lv11 ~ 20에서는 10, Lv21 ~ 29에서는 15 (누적: Lv10까지 45, Lv20까지 140, Lv30까지 285)
+//   고기: 30에서 시작해 레벨마다 1.2배. Lv5 → 6: 62, Lv10 → 11: 155, Lv15 → 16: 385, Lv20 → 21: 958, Lv25 → 26: 2,385
+//         누적: Lv10까지 624, Lv15까지 1,776, Lv20까지 4,643, Lv25까지 11,775, Lv30까지 29,521
+//   2026-10-11 플레이 기록: 첫 지역에서 버는 고기는 10번째 안개까지 약 1,800, 20번째까지 6,200, 30번째까지 17,500, 36번째까지 30,000.
+//   이 값이면 "노말 한 명을 한도까지 + 레어 세 명을 조각이 닿는 데까지"가 그 고기를 거의 다 쓴다. 출전한 전원을 한도까지 올릴 만큼은 안 된다
+const lvCost = l => ({ shards: 5 + 5 * Math.floor((l - 1) / 10), meat: Math.round(30 * Math.pow(1.2, l - 1)) });
 
 // ================= 몬스터 =================
 const MON = {
@@ -162,17 +174,20 @@ const SHIP_COST = { wood: 400, stone: 200, gold: 150 };
 //   지금 할 일 = 임무를 받은 뒤로 한 것만 센다.  성장 목표 = 도달해야 하는 수준(절대값). 이미 넘었으면 곧바로 완료된다
 // CURVE = 본줄기 t번째 안개를 걷기 전에 갖추게 할 수준. 여기 숫자가 곧 이 게임의 성장 속도다.
 //         플레이 기록(설정 → 플레이 기록 복사)에 안개마다 실제 레벨이 찍히므로, 그것과 견주어 고친다
+const stepAt = (...at) => t => at.filter(a => t >= a).length;   // stepAt(2, 4, 8)(t) = t가 2 · 4 · 8번째 안개에 닿을 때마다 1씩 오르는 값 (t=5이면 2)
 const CURVE = {
   // 2026-10-10 플레이 기록: 3번째 안개에서 용병단 4 · 영웅 3 (그때의 표보다 한 걸음씩 앞섬) → 용병단을 1 올림
+  // 2026-10-11 플레이 기록: 예전 경험치 식으로는 이 표의 두 배 빠르기였다 (10번째 안개 Lv15, 20번째 Lv30). 표는 그대로 두고 경험치 식(xpNeed)을 이 표에 맞췄다
   squad: t => (t < 6 ? t + 1 : Math.min(SQUAD_MAX_LV - 2, Math.round(2.9 + 0.62 * t))),   // 용병단 레벨: 3 → 4, 6 → 7, 12 → 10, 24 → 18, 36 → 25
-  // 건물은 값이 2.2배씩 뛰므로 한 지역에서 오를 수 있는 레벨이 많지 않다. 첫 지역에서는 대장간 6 · 훈련장 5 · 큰 등불 3까지
-  forge: t => Math.min(6, Math.round(0.5 + 0.16 * t)),                                 // 대장간: 2 → 1, 10 → 2, 16 → 3, 22 → 4, 28 → 5, 34 → 6
-  barracks: t => Math.min(5, Math.round(0.14 * t)),                                    // 훈련장: 4 → 1, 11 → 2, 18 → 3, 25 → 4, 33 → 5
-  lantern: t => Math.min(3, Math.round(0.09 * t)),                                     // 큰 등불: 6 → 1, 17 → 2, 28 → 3
-  hero: t => Math.min(16, Math.max(2, CURVE.squad(t) - 1)),                            // 가장 높은 영웅의 레벨 (용병단 레벨보다 하나 낮게. 첫 지역에서는 16까지 — 영웅 최고 레벨 20을 넘는 임무가 나오면 채울 수 없다)
-  // 등급 확률이 노말 70 · 레어 25 · 에픽 4.5 · 레전더리 0.5라서 레어 영웅의 조각은 모집 한 번에 평균 0.5개쯤, 새 에픽은 수십 번에 한 명이다. 그에 맞춰 낮게 잡는다
-  hero2: t => Math.min(6, Math.round(1 + 0.14 * t)),                                   // 두 번째로 높은 영웅의 레벨: 12 → 3, 24 → 4, 36 → 6
-  owned: t => Math.min(6, 2 + Math.round(0.13 * (t - 2))),                             // 보유 영웅: 6 → 3, 14 → 4, 22 → 5, 29 → 6
+  // 건물은 값이 2.2배씩 뛰므로 레벨이 초반에 빨리 오르고 뒤로 갈수록 느려진다. 그래서 직선 식이 아니라 "몇 번째 안개에서 한 레벨씩"을 적는다.
+  //   2026-10-11 플레이 기록의 나무 · 돌 수입(평균 분당 62 · 69)을 지금 값에 넣으면, 번 것의 45%를 건물에 쓸 때와 70%를 쓸 때의 사이에 놓이는 표다
+  forge: stepAt(2, 4, 8, 13, 20, 29),                                                  // 대장간: 2번째 안개에서 1, 4 → 2, 8 → 3, 13 → 4, 20 → 5, 29 → 6
+  barracks: stepAt(3, 6, 10, 16, 24, 33),                                              // 훈련장: 3 → 1, 6 → 2, 10 → 3, 16 → 4, 24 → 5, 33 → 6 (출전 인원은 2레벨마다 +1)
+  lantern: stepAt(7, 14, 26),                                                          // 큰 등불: 7 → 1, 14 → 2, 26 → 3
+  hero: t => Math.min(MAX_HERO_LV, Math.max(2, CURVE.squad(t) - 1)),                   // 가장 높은 영웅의 레벨: 용병단 레벨보다 하나 낮게 (영웅 레벨의 한도가 용병단 레벨이다)
+  // 두 번째로 높은 영웅은 대개 레어다. 레어 한 명의 조각은 모집 한 번에 평균 0.8개 → 12번째 안개쯤 Lv7, 24번째쯤 Lv13, 36번째쯤 Lv21까지 닿는다. 그보다 낮게 잡는다
+  hero2: t => Math.max(2, Math.round(0.4 * t)),                                        // 두 번째로 높은 영웅의 레벨: 6 → 2, 12 → 5, 18 → 7, 24 → 10, 30 → 12, 36 → 14
+  owned: t => Math.min(6, 2 + Math.round(0.13 * (t - 2))),                             // 보유 영웅: 6 → 3, 14 → 4, 22 → 5, 29 → 6 (운에 달린 일이라 낮게 둔다)
 };
 const MIS_HERO_EVERY = 3;                                                              // 영웅 레벨 임무는 안개 몇 개마다 (한 번은 한 명, 한 번은 두 명)
 const misHunt = t => Math.min(80, 10 + 2 * t);
@@ -206,9 +221,10 @@ function padCostFor(id, n) {
   const g = (base, k) => Math.round(base * Math.pow(k, n));
   switch (id) {
     // 첫 값은 수입(나무 분당 약 28, 돌 분당 약 16 — 2026-10-10 플레이 기록) 40초어치쯤, 레벨마다 대장간 · 훈련장은 2.2배, 큰 등불은 2.6배씩 비싸진다
-    //   대장간 나무: 20 → 44 → 97 → 213 → 469 → 1031 → 2267 …   훈련장 돌: 20 → 44 → 97 → 213 → 469 …   큰 등불: 40 → 104 → 270 → 703 …
+    //   대장간 · 훈련장 돌: 20 → 44 → 97 → 213 → 469 → 1,031 → 2,267 → 4,988 …   큰 등불: 40 → 104 → 270 → 703 → 1,828
+    // 돌이 나무보다 많이 든다: 돌은 장비 분해로도 들어와서 나무보다 많이 벌리고(2026-10-11 기록), 나무는 안개를 걷는 데도 쓰기 때문
     case 'lantern':  return { wood: g(40, 2.6), stone: g(40, 2.6), gold: g(30, 2.6) };
-    case 'forge':    return { wood: g(20, 2.2), stone: g(12, 2.2) };
+    case 'forge':    return { wood: g(14, 2.2), stone: g(20, 2.2) };
     case 'barracks': return { wood: g(14, 2.2), stone: g(20, 2.2) };
   }
   return null;
@@ -216,10 +232,12 @@ function padCostFor(id, n) {
 
 // ================= 생산소 =================
 // rate = 레벨 1당 1분 생산량 (실제 시간). 저장 한도 = 1분 생산량 × 60 × (2 + 창고 레벨) → 창고 Lv1이면 3시간치
+// 강화 재료는 원작처럼 한 바퀴 돈다: 고기 → 벌목장(나무) → 광산(돌) → 금화 생산소(금화). 남는 고기와 돌이 결국 금화(= 영웅 모집)로 바뀐다
+//   base = Lv1 → 2의 값 ÷ 1.7. 레벨마다 1.7배 (벌목장 고기: 68 → 116 → 197 → 334 → … → Lv10에 4,743, 다 올리면 약 11,400)
 const PROD = [
-  { id: 'wood',  name: '벌목장',     rate: 1,    base: { wood: 0,  stone: 20, gold: 10 } },
-  { id: 'stone', name: '광산',       rate: 1,    base: { wood: 20, stone: 0,  gold: 10 } },
-  { id: 'gold',  name: '금화 생산소', rate: 0.25, base: { wood: 30, stone: 30, gold: 0 } },
+  { id: 'wood',  name: '벌목장',     rate: 1,    base: { meat: 40 } },
+  { id: 'stone', name: '광산',       rate: 1,    base: { wood: 30 } },
+  { id: 'gold',  name: '금화 생산소', rate: 0.25, base: { stone: 40 } },
 ];
 const PROD_MAX = 10, STORE_MAX = 10;
 const prodCost = (p, l) => { const c = {}; for (const k in p.base) if (p.base[k]) c[k] = Math.round(p.base[k] * Math.pow(1.7, l - 1)); return c; };

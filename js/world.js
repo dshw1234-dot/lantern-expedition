@@ -142,7 +142,7 @@ function genWorld(r) {
   const zoneOf = depth => (depth <= 0 ? 0 : depth <= ZONE_END[0] ? 1 : depth <= ZONE_END[1] ? 2 : 3);
   const addSector = (c, q, parent, trunk) => {
     const depth = parent ? parent.depth + 1 : 0;
-    const s = { id: sectors.length, c, r: q, x: (c + 0.5) * CELL, y: (q + 0.5) * CELL, parent: parent ? parent.id : -1, kids: [], trunk, depth, zone: zoneOf(depth), mul: Math.pow(DEPTH_MUL, Math.max(0, depth - 1)),
+    const s = { id: sectors.length, c, r: q, x: (c + 0.5) * CELL, y: (q + 0.5) * CELL, parent: parent ? parent.id : -1, kids: [], trunk, depth, zone: zoneOf(depth), mul: Math.pow(R.depthMul || DEPTH_MUL, Math.max(0, depth - 1)) * ((R.zoneMul && R.zoneMul[zoneOf(depth)]) || 1),
       open: depth <= 1, fade: 0, gate: null, dens: [], nodes: [], chest: null, portal: null, way: null, boss: false,
       bend: RR(-60, 60), rx: RR(0.36, 0.43) * CELL, ry: RR(0.36, 0.43) * CELL, ph: [RR(0, TAU), RR(0, TAU), RR(0, TAU)] };
     used[ci(c, q)] = 1; cellSec[ci(c, q)] = s.id; sectors.push(s);
@@ -232,7 +232,7 @@ function genWorld(r) {
     const ent = neck(sectors[s.parent], s, 0.5), exits = s.kids.map(k => sectors[k].gate).filter(Boolean);
     const away = [[ent, 330], ...exits.map(g => [g, 230])];
     if (s.boss) {
-      s.dens.push({ x: s.x, y: s.y, zone: 3, pack: { boss: [1, 1] }, members: [], respawnAt: 0, boss: true, mul: BOSS_MUL, depth: s.depth });
+      s.dens.push({ x: s.x, y: s.y, zone: 3, pack: { boss: [1, 1] }, members: [], respawnAt: 0, boss: true, mul: s.mul * BOSS_MUL, depth: s.depth });   // 보스 = 이 구역(마지막 구역) 몬스터의 BOSS_MUL배
       BOSS_POS.x = s.x; BOSS_POS.y = s.y;
       continue;
     }
@@ -279,14 +279,15 @@ function genWorld(r) {
     return best ? [best, cnt[best]] : ['slime', 4];
   };
   const hunt = (p, n) => { const [mon, per] = ownMon(p); return { type: 'hunt', mon, n: Math.min(n, per * HUNT_CYCLES) }; };   // 드문 몬스터라면 수를 줄인다
+  const T0 = TRUNK_LEN * r;   // 지역을 이어서 센다: 둘째 지역의 t번째 안개는 T0 + t번째. 값 · 수량 · 성장 목표가 앞 지역의 끝에서 이어진다
   let sideN = 0;
   for (const s of sectors) {
     const g = s.gate;
     if (!g) continue;
-    if (s.trunk) { g.req = { type: 'pay', cost: fogCost(s.depth) }; continue; }   // 본줄기: 임무가 여기까지 와야 하고, 값을 바친다
+    if (s.trunk) { g.req = { type: 'pay', cost: fogCost(T0 + s.depth) }; continue; }   // 본줄기: 임무가 여기까지 와야 하고, 값을 바친다
     const kind = ['pay', 'hunt', 'elite'][sideN++ % 3], p = sectors[g.from];
-    if (kind === 'pay') g.req = { type: 'pay', cost: sidePay(s.depth) };
-    else if (kind === 'hunt') g.req = hunt(p, sideHunt(s.depth));
+    if (kind === 'pay') g.req = { type: 'pay', cost: sidePay(T0 + s.depth) };
+    else if (kind === 'hunt') g.req = hunt(p, sideHunt(T0 + s.depth));
     else {   // 마법진 앞을 지키는 정예. 잡으면 다시 나오지 않는다
       const q = neck(p, s, 0.5 - 300 / CELL);
       g.req = { type: 'elite', n: 1 };
@@ -296,18 +297,22 @@ function genWorld(r) {
   }
   // 임무 사슬: 안개 하나마다 [지금 할 일] → [새로 올라야 할 성장 목표] → [안개 걷기]
   missions = [];
-  const have = { forge: 0, barracks: 0, lantern: 0, owned: 2, squad: 1 };
+  // 성장 목표의 출발점: 첫 지역은 맨바닥에서, 그 뒤 지역은 앞 지역이 끝날 때의 목표에서 (이미 지난 목표가 다시 나오지 않게)
+  const have = r ? { forge: CURVE.forge(T0), barracks: CURVE.barracks(T0), lantern: CURVE.lantern(T0), owned: CURVE.owned(T0), squad: CURVE.squad(T0) } : { forge: 0, barracks: 0, lantern: 0, owned: 2, squad: 1 };
   for (let t = 2, gk = 0; t <= TRUNK_LEN; t++) {
-    const s = sectors[t], add = m => { m.rw = misReward(t); missions.push(m); };
-    if (t === 2) add({ type: 'gather', res: 'wood', n: fogCost(2).wood });
-    else if (t % 2) add(hunt(sectors[t - 1], misHunt(t)));
-    else add(Object.assign({ type: 'gather' }, misGather(t, gk++)));
+    const T = T0 + t, s = sectors[t], add = m => { m.rw = misReward(T); missions.push(m); };
+    if (t === 2 && !r) add({ type: 'gather', res: 'wood', n: fogCost(2).wood });
+    else if (t % 2) add(hunt(sectors[t - 1], misHunt(T)));
+    else add(Object.assign({ type: 'gather' }, misGather(T, gk++)));
     // 표(CURVE)를 어떻게 고치든 채울 수 없는 임무는 나오지 않게, 여기서 최고 레벨 안으로 자른다 (영웅 레벨은 용병단 레벨을 넘지 못하므로 그 임무의 용병단 목표까지)
-    for (const k of ['forge', 'barracks', 'lantern']) { const v = Math.min(PAD[k].max, CURVE[k](t)); if (v > have[k]) { have[k] = v; add({ type: 'build', pad: k, lv: v }); } }
-    let v = Math.min(HERO_DEFS.length, CURVE.owned(t)); if (v > have.owned) { have.owned = v; add({ type: 'recruit', n: v }); }
-    v = Math.min(SQUAD_MAX_LV, CURVE.squad(t)); if (v > have.squad) { have.squad = v; add({ type: 'squad', lv: v }); }
+    for (const k of ['forge', 'barracks', 'lantern']) { const v = Math.min(PAD[k].max, CURVE[k](T)); if (v > have[k]) { have[k] = v; add({ type: 'build', pad: k, lv: v }); } }
+    let v = Math.min(HERO_DEFS.length, CURVE.owned(T)); if (v > have.owned) { have.owned = v; add({ type: 'recruit', n: v }); }
+    v = Math.min(SQUAD_MAX_LV, CURVE.squad(T)); if (v > have.squad) { have.squad = v; add({ type: 'squad', lv: v }); }
     const cap = Math.min(MAX_HERO_LV, have.squad);
-    if (t % MIS_HERO_EVERY === 0) add(t % (MIS_HERO_EVERY * 2) ? { type: 'herolv', lv: Math.min(cap, CURVE.hero(t)), cnt: 1 } : { type: 'herolv', lv: Math.min(cap, CURVE.hero2(t)), cnt: 2 });
+    if (t % MIS_HERO_EVERY === 0) {
+      if (r) { const q = misHeroLate(T); add({ type: 'herolv', lv: Math.min(cap, q.lv), cnt: Math.min(HERO_DEFS.length, q.cnt) }); }   // 둘째 지역부터: 여러 명을 고르게
+      else add(t % (MIS_HERO_EVERY * 2) ? { type: 'herolv', lv: Math.min(cap, CURVE.hero(t)), cnt: 1 } : { type: 'herolv', lv: Math.min(cap, CURVE.hero2(t)), cnt: 2 });
+    }
     s.gate.mi = missions.length;   // 이 마법진은 임무가 여기에 닿아야 쓸 수 있다
     add({ type: 'fog', sec: s.id });
   }

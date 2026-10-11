@@ -485,7 +485,8 @@ function bossAI(m, dt) {
     m.slam.t -= dt;
     if (m.slam.t <= 0) {   // 내려찍기: 보라색 원 안에 있으면 큰 피해. 움직여서 피할 수 있다
       const s = m.slam; m.slam = null;
-      for (const h of heroes) if (!h.down && d2(h.x, h.y, s.x, s.y) < (s.r + h.def.r) ** 2) damageHero(h, m.atk * 2.5);
+      // 피해는 공격력의 2.5배와 "그 영웅 최대 체력의 BOSS_SLAM_HP" 가운데 큰 쪽. 아무리 키워도 연달아 두 번 맞으면 버티기 어렵다 → 피해야 한다
+      for (const h of heroes) if (!h.down && d2(h.x, h.y, s.x, s.y) < (s.r + h.def.r) ** 2) damageHero(h, Math.max(m.atk * 2.5, h.maxHp * BOSS_SLAM_HP));
       shake(10); burst(s.x, s.y, '#b59cff', 40, 320);
       fxs.push({ kind: 'ring', x: s.x, y: s.y, r: s.r, t: 0, T: 0.35, c: '#c9b3ff' });
     }
@@ -496,7 +497,7 @@ function bossAI(m, dt) {
   if (m.sumT <= 0) {
     m.sumT = 15;
     for (let i = 0; i < 3; i++) {
-      const a = rand(0, TAU), s = makeMonster('skeleton', m.x + Math.cos(a) * 70, m.y + Math.sin(a) * 70, m.den, false, m.arena ? mode.mul : undefined);
+      const a = rand(0, TAU), s = makeMonster('skeleton', m.x + Math.cos(a) * 70, m.y + Math.sin(a) * 70, m.den, false, m.arena ? mode.mul : m.mul / BOSS_MUL);   // 부하는 그 구역의 보통 몬스터만큼 (보스 배율을 뺀다)
       s.summoned = true; s.arena = m.arena; s.state = 'chase'; s.target = nearestHero(s.x, s.y, 9999);
       monsters.push(s); burst(s.x, s.y, '#9b8cff', 10, 120);
     }
@@ -572,7 +573,7 @@ function killMonster(m) {
   if (m.d.pig) return;
   // 필드 몬스터는 깊은 구역일수록 강한 만큼 더 많이 준다 (드랍은 배율의 제곱근, 경험치는 0.6제곱)
   const field = !(m.arena && mode), den = m.den, depth = (den && den.depth) || 1;
-  const loot = field ? REG().loot * Math.sqrt(m.mul / REG().mul) : mode.loot, el = m.elite ? 3 : 1;
+  const loot = field ? Math.sqrt(m.mul) : mode.loot, el = m.elite ? 3 : 1;   // 고기: 몬스터 배율의 제곱근 (지역이 바뀌어도 그대로 이어진다)
   const drop = (type, n) => { for (let left = n; left > 0; left -= 10) spawnPickup(type, m.x, m.y - 10, Math.min(10, left)); };
   drop('gold', Math.round(randi(m.d.gold[0], m.d.gold[1]) * (field ? REG().loot : loot) * el));   // 금화는 깊이에 따라 늘지 않는다 (고기만 는다)
   drop('meat', Math.round(randi(m.d.meat[0], m.d.meat[1]) * loot * el));

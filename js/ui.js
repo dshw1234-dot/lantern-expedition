@@ -554,13 +554,14 @@ const PANELS = {
           `<div class="rmain"><div class="rline"><b>${title}</b>${locked ? `<span class="tag">용병단 Lv${UNLOCK[id]}부터</span>` : ''}</div><div class="dim">${desc}<br>${status}</div></div>` +
           `<div class="rside">${btn(locked)}</div></div>`;
       };
-      const st = PIG_STAGES[Math.min(prog.pigStage, PIG_STAGES.length - 1)];
-      const pigRow = row('pig', '황금 돼지', '어떤 공격이든 피해 1. 60초 안에 쓰러뜨리면 금화. 타격 횟수가 많은 영웅이 유리해요.', `${prog.pigStage + 1}단계 · 체력 ${st.hp} · 보상 금화 ${st.gold}`,
-        l => `<button class="btn sm primary" type="button" data-act="go:pig"${l || daily.pig ? ' disabled' : ''}>${daily.pig ? '오늘 완료' : '도전'}</button>`);
+      const pk = prog.pigStage + 1, pw = pigReward(pk);
+      const pigRow = row('pig', '황금 돼지', `어떤 공격이든 피해 1. ${PIG.time}초 안에 쓰러뜨리면 금화와 고기를 받고 다음 단계로 가요. 단계마다 돼지가 튼튼해지고 보상이 커져요 (${PIG.bonusEvery}단계마다 ${PIG.bonusMul}배). 자주 때리는 원정대가 유리해요.`,
+        `최고 기록 ${prog.pigStage}단계 · 다음: ${PIG.hp(pk)}번 때리기 → 금화 ${pw.gold} · 고기 ${pw.meat}`,
+        l => `<button class="btn sm primary" type="button" data-act="go:pig"${l ? ' disabled' : ''}>${pk}단계</button>`);
       const defLeft = DAILY.defense - daily.defense;
       const defRow = row('defense', '마을 방어', `수호상을 ${DEF_WAVES}웨이브 동안 지켜요. 레벨이 오를 때마다 강화 3개 중 1개를 골라요. 보상: 반지`, `오늘 ${defLeft}/${DAILY.defense}번 남음`,
         l => `<button class="btn sm primary" type="button" data-act="go:defense"${l || defLeft <= 0 ? ' disabled' : ''}>도전</button>`);
-      const towerRow = row('tower', '시련의 탑', `층마다 강해지는 적을 ${TOWER_TIME}초 안에 전멸시켜요. 처음 깬 층마다 금화와 조각, 5층마다 장비.`, `최고 기록 ${prog.towerBest}층`,
+      const towerRow = row('tower', '시련의 탑', `층마다 강해지는 적을 ${TOWER_TIME}초 안에 전멸시켜요. 처음 깬 층마다 금화 · 고기 · 영웅 조각, ${TOWER.itemEvery}층마다 ${GRADES[TOWER.itemGrade].name} 등급 이상의 장비.`, `최고 기록 ${prog.towerBest}층 · 다음: 금화 ${TOWER.gold(prog.towerBest + 1)} · 고기 ${TOWER.meat(prog.towerBest + 1)} · 조각 카드 ${TOWER.cards(prog.towerBest + 1)}장 값`,
         l => `<button class="btn sm primary" type="button" data-act="go:tower"${l ? ' disabled' : ''}>${prog.towerBest + 1}층</button>`);
       return head('도전의 문', `<span class="purse">용병단 Lv${squad.lvl}</span>`) +
         `<div class="scroll">${pigRow}${defRow}${towerRow}</div>` +
@@ -569,7 +570,6 @@ const PANELS = {
     },
     act(a, id) {
       if (a !== 'go' || squad.lvl < UNLOCK[id]) return;
-      if (id === 'pig' && daily.pig) return;
       if (id === 'defense') { if (daily.defense >= DAILY.defense) return; daily.defense++; }
       const back = { x: P.x, y: P.y };
       closePanel(true);
@@ -613,14 +613,14 @@ const PANELS = {
       if (r.meat) list.push(`고기 +${r.meat}`);
       for (const it of r.items) list.push(`${itemName(it)} Lv${it.tier}`);
       if (r.shards) list.push(`${HERO_DEFS[r.shards.i].name} 조각 +${r.shards.n}`);
-      const next = mode.win && mode.id === 'tower';
+      const next = mode.win && (mode.id === 'tower' || mode.id === 'pig');   // 탑과 돼지는 깨면 곧바로 다음으로 이어 갈 수 있다
       return head(mode.win ? '성공!' : '실패', `<span class="purse">${mode.name}</span>`) +
         `<p class="panel-sub">${mode.win ? r.note || '잘 해냈어요.' : mode.reason}</p>` +
         (mode.win && list.length ? `<div class="totals">보상: ${list.join(' · ')}</div>` : '') +
-        (!mode.win && mode.id === 'pig' ? '<p class="dim">황금 돼지는 실패해도 다시 도전할 수 있어요.</p>' : '') +
-        `<div class="btns">${next ? `<button class="btn primary" type="button" data-act="next">${mode.floorN + 1}층 도전</button>` : ''}<button class="btn ${next ? 'ghost' : 'primary'}" type="button" data-act="back">돌아가기</button></div>`;
+        (!mode.win && (mode.id === 'pig' || mode.id === 'tower') ? '<p class="dim">실패해도 잃는 것은 없어요. 더 키운 뒤 언제든 다시 도전할 수 있어요.</p>' : '') +
+        `<div class="btns">${next ? `<button class="btn primary" type="button" data-act="next">${mode.id === 'pig' ? `${mode.stage + 1}단계` : `${mode.floorN + 1}층`} 도전</button>` : ''}<button class="btn ${next ? 'ghost' : 'primary'}" type="button" data-act="back">돌아가기</button></div>`;
     },
-    act(a) { closePanel(true); leaveMode(a === 'next' ? 'tower' : null); },
+    act(a) { const id = mode.id; closePanel(true); leaveMode(a === 'next' ? id : null); },
   },
   // ---------------- 마을 방어: 강화 선택 ----------------
   choice: {
@@ -866,7 +866,7 @@ $('btn-home').addEventListener('click', () => {   // 귀환 포털: 마을로 �
 // 밸런스를 맞출 때 보는 글: 지금 상태 한 줄 + 안개를 걷을 때마다 적어 둔 기록 (cols가 각 칸의 뜻)
 function playLogText() {
   return JSON.stringify({ game: 'lantern', ver: VERSION, t: Math.round(playTime), kills, region: regionIdx, open: [openCount(), sectors.length - 1], squad: squad.lvl,
-    heroes: roster.map(r => (r.owned ? r.lvl : 0)), shards: roster.map(r => r.shards), pool: { ...gen }, power: squadPower(), lv, prod: { wood: prod.wood.lvl, stone: prod.stone.lvl, gold: prod.gold.lvl, store: prod.store },
+    heroes: roster.map(r => (r.owned ? r.lvl : 0)), shards: roster.map(r => r.shards), pool: { ...gen }, power: squadPower(), prog: { pig: prog.pigStage, tower: prog.towerBest }, lv, prod: { wood: prod.wood.lvl, stone: prod.stone.lvl, gold: prod.gold.lvl, store: prod.store },
     res: Object.fromEntries(Object.keys(res).map(k => [k, Math.floor(res[k])])), earned: Object.fromEntries(Object.keys(life).map(k => [k, Math.round(life[k])])), pulls: pub.pulls, next: objective().text,
     cols: 'region,sec,depth,type,t,dt,squad,maxHero,sumHero,owned,forge,barracks,lantern,kills,woodEarned,stoneEarned,goldEarned,meatEarned,xpEarned,pulls,supply,power', log: plog });
 }

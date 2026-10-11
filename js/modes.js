@@ -33,15 +33,15 @@ function enterMode(id, opt = {}) {
   partyN = -1;
 }
 
-// ---------------- 황금 돼지: 어떤 공격이든 피해 1. 60초 안에 쓰러뜨려야 금화 ----------------
+// ---------------- 황금 돼지: 어떤 공격이든 피해 1. 제한 시간 안에 쓰러뜨리면 그 단계의 금화 · 고기, 그리고 다음 단계 (PIG) ----------------
 function setupPig() {
-  const stage = Math.min(prog.pigStage, PIG_STAGES.length - 1), st = PIG_STAGES[stage];
-  Object.assign(mode, { name: '황금 돼지', oneDamage: true, limit: 60, stage, loot: 0, xpMul: 0 });
+  const stage = prog.pigStage + 1, hp = PIG.hp(stage);   // prog.pigStage = 지금까지 깬 단계 수
+  Object.assign(mode, { name: '황금 돼지', oneDamage: true, limit: PIG.time, stage, loot: 0, xpMul: 0 });
   const pig = spawnArena('pig', 1, { r: 0 })[0];
-  pig.maxHp = pig.hp = st.hp; pig.atk = 0;
+  pig.maxHp = pig.hp = hp; pig.atk = 0;
   mode.pig = pig;
   placeSquad(ARENA.x, ARENA.y + 220);
-  banner(`${stage + 1}단계 · 60초 안에 ${st.hp}번 때리세요`);
+  banner(`${stage}단계 · ${PIG.time}초 안에 ${hp}번 때리세요`);
 }
 function pigAI(m, dt, spd) {   // 가장 가까운 영웅에게서 달아난다
   const h = nearestHero(m.x, m.y, 99999);
@@ -186,11 +186,13 @@ function modeWin() {
   mode.over = true; mode.win = true;
   const r = mode.rewards, L = mode.loot || 1;
   switch (mode.id) {
-    case 'pig':
-      r.gold = PIG_STAGES[mode.stage].gold;
-      daily.pig = 1; prog.pigStage = Math.min(PIG_STAGES.length - 1, prog.pigStage + 1);
-      r.note = `${mode.t.toFixed(1)}초 만에 잡았어요`;
+    case 'pig': {
+      const w = pigReward(mode.stage);
+      r.gold = w.gold; r.meat = w.meat;
+      prog.pigStage = Math.max(prog.pigStage, mode.stage);
+      r.note = `${mode.stage}단계를 ${mode.t.toFixed(1)}초 만에 잡았어요${mode.stage % PIG.bonusEvery === 0 ? ` · ${PIG.bonusEvery}단계마다 보상 ${PIG.bonusMul}배!` : ''}`;
       break;
+    }
     case 'dungeon': {
       const cm = 1 + Math.min(1, mode.maxCombo / 100);
       r.gold = Math.round(40 * mode.zone * L * cm); r.meat = Math.round(25 * mode.zone * L * cm);
@@ -208,10 +210,12 @@ function modeWin() {
     case 'tower': {
       const f = mode.floorN;
       prog.towerBest = Math.max(prog.towerBest, f);
-      r.gold = 25 * f;
-      const owned = roster.map((x, i) => i).filter(i => roster[i].owned);
-      r.shards = { i: pick(owned), n: 2 + Math.floor(f / 5) };
-      if (f % 5 === 0) r.items = [makeItem(mode.tier, 1)];
+      r.gold = TOWER.gold(f); r.meat = TOWER.meat(f);
+      // 조각: 아직 키울 수 있는 영웅(만렙이 아닌 보유 영웅) 가운데 한 명에게 카드 몇 장 값을 준다. 모두 만렙이면 아무나 (공용 조각이 된다)
+      const owned = roster.map((x, i) => i).filter(i => roster[i].owned), grow = owned.filter(i => !isMax(i)), hi = pick(grow.length ? grow : owned);
+      r.shards = { i: hi, n: TOWER.cards(f) * RARITY[HERO_DEFS[hi].rarity].shards };
+      if (f % TOWER.itemEvery === 0) r.items = [makeItem(mode.tier, TOWER.itemGrade)];
+      r.note = `${f}층을 ${mode.t.toFixed(1)}초 만에 깼어요`;
       break;
     }
   }
@@ -245,5 +249,5 @@ function leaveMode(next) {
   for (const p of PADS) if (d2(p.x, p.y, P.x, P.y) < 60 * 60) padArmed[p.id] = false;
   partyN = -1;
   saveLocal();
-  if (next === 'tower') enterMode('tower', { back });
+  if (next === 'tower' || next === 'pig') enterMode(next, { back });   // 결과 창에서 곧바로 다음 층 · 다음 단계로
 }

@@ -301,7 +301,8 @@ function openPanel(name, arg) {
   sheet.hidden = false;
   focusPanel();
 }
-function focusPanel() {   // 키보드로 바로 누를 수 있게: data-focus가 붙은 버튼, 없으면 첫 버튼
+function focusPanel() {   // 키보드로 바로 누를 수 있게: data-focus가 붙은 버튼, 없으면 첫 버튼. noFocus인 창은 아무것도 고르지 않은 채로 연다
+  if (PANELS[panel] && PANELS[panel].noFocus) { if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); return; }
   const b = card.querySelector('[data-focus]') || card.querySelector('button:not([disabled])');
   if (b && matchMedia('(hover: hover)').matches) b.focus({ preventScroll: true });
 }
@@ -325,7 +326,11 @@ card.addEventListener('click', e => {
   if (act === 'close') { closePanel(); return; }
   PANELS[panel].act(act, arg, b);
 });
-addEventListener('keydown', e => { if (e.key === 'Escape' && panel) closePanel(); });
+addEventListener('keydown', e => {
+  if (e.key === 'Escape' && panel) closePanel();
+  // 창이 떠 있는데 포커스가 창 밖(화면 뒤의 버튼들)에 있으면, Tab 한 번으로 창의 첫 버튼에 닿게 한다
+  if (e.key === 'Tab' && panel && !card.contains(document.activeElement)) { const b = card.querySelector('button:not([disabled])'); if (b) { e.preventDefault(); b.focus(); } }
+});
 const head = (title, right = '') => `<div class="panel-head"><h2 id="sheet-h">${title}</h2>${right}</div>`;
 const purse = (svg, n, title) => `<span class="purse" title="${title}">${svg}<b>${Math.floor(n)}</b></span>`;
 const costHtml = c => Object.keys(c).filter(k => c[k] > 0).map(k => `<span class="${res[k] >= c[k] ? 'ok' : 'lack'}">${RES_NAME[k]} ${c[k]}</span>`).join('');
@@ -625,6 +630,7 @@ const PANELS = {
   // ---------------- 마을 방어: 강화 선택 ----------------
   choice: {
     noClose: true,
+    noFocus: true,   // 싸우는 도중에 저절로 뜨는 창이라, 첫 카드에 포커스를 주면 누르던 키로 엉뚱한 강화를 고를 수 있다
     render(opts) {
       const cards = opts.map(b => `<button class="hcard" type="button" data-act="pick:${b.id}" style="--rc:#ffb44d"><b>${b.name}</b><span class="dim">${b.desc}</span></button>`).join('');
       return head('강화 선택', `<span class="purse">Lv ${mode.runLv}</span>`) + '<p class="panel-sub">하나를 고르면 이번 방어전이 끝날 때까지 유지돼요.</p>' + `<div class="cards">${cards}</div>`;

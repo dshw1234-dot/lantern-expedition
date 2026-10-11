@@ -347,6 +347,8 @@ function drawHero(h) {
   ctx.scale(h.face, 1);
   const sw = h.swing > 0 ? Math.sin((0.2 - h.swing) / 0.2 * Math.PI) : 0;
   // 등 뒤 장비
+  if (d.id === 'garam') { ctx.save(); ctx.rotate(-0.4 - sw * 1.2); line(r * 0.2, r * 0.8, r * 0.9, -r * 1.2, '#6b4a2e', 3.5); circ(r * 0.95, -r * 1.35, 6, '#9aa6bd'); circ(r * 0.95, -r * 1.35, 2.5, '#e8ecf5'); ctx.restore(); }
+  if (d.id === 'aria') { ctx.save(); ctx.rotate(-0.5 - sw * 1.3); line(r * 0.3, r * 0.7, r * 1.0, -r * 1.6, '#fff3c0', 4); line(r * 0.15, r * 0.25, r * 0.85, r * 0.5, '#d9b64a', 3); ctx.restore(); }
   if (d.id === 'mina') { line(-r * 0.9, -r * 0.9, r * 0.5, r * 0.6, '#dfe6ef', 3); line(r * 0.3, -r * 1.0, -r * 0.8, r * 0.5, '#dfe6ef', 3); }
   if (d.id === 'siu') { ctx.save(); ctx.rotate(-sw * 0.6); line(-r * 0.4, r * 0.9, r * 1.5, -r * 1.2, '#a0b3c4', 3); poly([r * 1.5, -r * 1.2, r * 1.2, -r * 0.8, r * 1.9, -r * 1.7], '#dff6ff'); ctx.restore(); }
   if (d.id === 'bori') { ctx.save(); ctx.rotate(-0.4 - sw * 1.2); line(r * 0.2, r * 0.8, r * 0.9, -r * 1.3, '#6b4a2e', 3.5); poly([r * 0.7, -r * 1.5, r * 1.6, -r * 1.3, r * 1.4, -r * 0.6, r * 0.8, -r * 0.8], '#c9cdd8'); ctx.restore(); }
@@ -399,6 +401,51 @@ function drawHero(h) {
       ctx.fillStyle = '#ff7fd0'; ctx.fillRect(r * 0.9, -r * 0.6, 2, 9); circ(r * 0.8, r * 0.3, 2.6, '#ff7fd0');
       break;
     }
+    // ---- 0.4.6에 합류한 10명
+    case 'hans':
+      ctx.fillStyle = '#7a4a2a'; ctx.fillRect(-r * 0.95, -r * 0.6, r * 1.9, 3.5);
+      ctx.save(); ctx.translate(r * 0.9, r * 0.2); ctx.rotate(0.5 - sw * 1.1); line(0, 0, 0, -r * 1.35, '#b98552', 3.5); line(-4, -2, 4, -2, '#6b4a2e', 2.5); ctx.restore();
+      break;
+    case 'duri':
+      poly([-2, -r * 0.95, 3, -r * 1.5, 7, -r * 0.95], '#6aa84f');
+      ctx.save(); ctx.translate(r * 0.85 + sw * 4, r * 0.15);
+      ctx.fillStyle = '#8a5a2b'; ctx.beginPath(); ctx.roundRect(-6, -10, 12, 19, 5); ctx.fill();
+      ctx.strokeStyle = '#5e3c1c'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(0, -0.5, 3, 5, 0, 0, TAU); ctx.stroke(); ctx.restore();
+      break;
+    case 'dongi':
+      circ(0, -r - 3, 3, '#ffcf4a');
+      circ(r * 0.75, r * 0.35, 6, '#c0392b'); circ(r * 0.75, r * 0.35, 4, '#f5e6c8');
+      line(r * 0.15, -r * 0.1, r * 0.75 - sw * 3, r * 0.15 - sw * 5, '#8a5a2b', 2);
+      break;
+    case 'garam': ctx.fillStyle = '#5a6788'; ctx.beginPath(); ctx.arc(0, -r * 0.3, r * 0.98, Math.PI * 1.08, Math.PI * 1.92); ctx.fill(); break;
+    case 'somi':
+      poly([0, -r * 0.95, -6, -r * 1.6, -1, -r * 1.25], '#5fae4a'); poly([0, -r * 0.95, 6, -r * 1.65, 1, -r * 1.25], '#7cc95f');
+      circ(r * 0.75, r * 0.4, 4, '#d9b64a');
+      break;
+    case 'momo':
+      poly([-r * 0.95, -r * 0.55, r * 0.05, -r * 1.9, r * 0.95, -r * 0.55], '#e8f6ff');
+      ctx.fillStyle = '#7fd6ea'; ctx.fillRect(-r * 0.75, -r * 0.8, r * 1.5, 3);
+      line(r * 1.0, r * 0.9, r * 1.1, -r * 0.7, '#8fa6b8', 2.5);
+      circ(r * 1.1, -r * 0.85, 3.5 + sw * 2, '#dff6ff');
+      break;
+    case 'rena': {
+      poly([-r * 0.9, -r * 0.45, r * 0.1, -r * 1.5, r * 0.9, -r * 0.45], '#8f3a3a');
+      const bx = r * 0.95 - sw * 3;
+      line(bx - 6, r * 0.15, bx + 7, r * 0.15, '#6b4a2e', 3); line(bx + 3, r * 0.15 - 7, bx + 3, r * 0.15 + 7, '#c9cdd8', 2.5);
+      break;
+    }
+    case 'baru':
+      ctx.fillStyle = '#6f8196'; ctx.beginPath(); ctx.arc(0, -r * 0.25, r * 1.0, Math.PI * 1.02, Math.PI * 1.98); ctx.fill();
+      ctx.fillStyle = '#c9d2e3'; ctx.fillRect(-1.5, -r * 1.3, 3, r * 0.5);
+      ctx.save(); ctx.translate(r * 0.9 + sw * 4, r * 0.15);
+      ctx.fillStyle = '#aab6c8'; ctx.beginPath(); ctx.roundRect(-8, -12, 16, 23, 5); ctx.fill();
+      ctx.fillStyle = '#6f8196'; ctx.fillRect(-1.5, -9, 3, 17); ctx.restore();
+      break;
+    case 'aria': poly([-r * 0.6, -r * 0.85, -r * 0.6, -r * 1.4, -r * 0.25, -r * 1.1, 0, -r * 1.5, r * 0.25, -r * 1.1, r * 0.6, -r * 1.4, r * 0.6, -r * 0.85], '#ffcf4a'); break;
+    case 'luna':
+      ctx.fillStyle = '#fff6c0'; ctx.beginPath(); ctx.arc(0, -r - 8, 6, 0.7, TAU - 0.7); ctx.arc(3, -r - 8, 4.6, TAU - 0.95, 0.95, true); ctx.closePath(); ctx.fill();
+      line(r * 1.0, r * 0.9, r * 1.05, -r * 0.6, '#8f86c9', 2.5); circ(r * 1.05, -r * 0.75, 3.2 + sw * 1.5, '#fff6c0');
+      break;
     case 'kai':
       poly([-r * 0.9, -r * 0.6, -r * 0.5, -r * 1.5, -r * 0.1, -r * 0.8, r * 0.3, -r * 1.6, r * 0.6, -r * 0.8, r * 1.0, -r * 1.3, r * 0.9, -r * 0.5], '#fff6c0');
       ctx.strokeStyle = '#fff3a0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(r * 1.1, -r * 0.2); ctx.lineTo(r * 1.4, r * 0.1); ctx.lineTo(r * 1.15, r * 0.25); ctx.lineTo(r * 1.5, r * 0.6); ctx.stroke();
@@ -537,7 +584,7 @@ function drawFx(f) {
   ctx.globalAlpha = 1;
 }
 function drawDelayedGround(e) {
-  if (e.kind === 'meteor') { ctx.strokeStyle = 'rgba(255,160,80,.8)'; ctx.lineWidth = 3; ctx.setLineDash([8, 6]); ctx.beginPath(); ctx.ellipse(e.x, e.y, e.r, e.r * 0.55, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
+  if (e.kind === 'meteor') { ctx.strokeStyle = e.st === 'frost' ? 'rgba(160,225,255,.8)' : 'rgba(255,160,80,.8)'; ctx.lineWidth = 3; ctx.setLineDash([8, 6]); ctx.beginPath(); ctx.ellipse(e.x, e.y, e.r, e.r * 0.55, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
   else if (e.kind === 'cloud') {
     const a = Math.min(1, e.t) * 0.35;
     for (let k = 0; k < 5; k++) { const ang = now * 0.8 + k * 1.26; ctx.globalAlpha = a; circ(e.x + Math.cos(ang) * e.r * 0.45, e.y + Math.sin(ang) * e.r * 0.25 - 10, e.r * 0.45, '#7fd65a'); }
@@ -545,7 +592,7 @@ function drawDelayedGround(e) {
   }
 }
 function drawDelayedAir(e) {
-  if (e.kind === 'meteor') { const k = e.t / e.T; circ(e.x + k * 60, e.y - k * 240, 13, '#ff8b3d'); circ(e.x + k * 60, e.y - k * 240, 7, '#ffe08a'); }
+  if (e.kind === 'meteor') { const k = e.t / e.T, cold = e.st === 'frost'; circ(e.x + k * 60, e.y - k * 240, 13, cold ? '#7fd6ea' : '#ff8b3d'); circ(e.x + k * 60, e.y - k * 240, 7, cold ? '#e8fbff' : '#ffe08a'); }
 }
 
 // ================= 경기장 (도전 콘텐츠) =================

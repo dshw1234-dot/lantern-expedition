@@ -25,7 +25,7 @@ const GATHER = 250;                          // 멈췄을 때 채집하러 가�
 const BOSS_POS = { x: 0, y: 0 };             // 보스 자리. 지역을 만들 때 마지막 구역 한가운데로 정해진다
 const START = { x: VC.x, y: VC.y + 10 };
 const ARENA = { x: WORLD_W + 1500, y: 1800, r: 520 };   // 도전 콘텐츠 전용 경기장 (월드 바깥에 둔다)
-const VERSION = '0.4.5';                     // 설정 창과 플레이 기록에 찍힌다
+const VERSION = '0.4.6';                     // 설정 창과 플레이 기록에 찍힌다
 const SAVE_KEY = 'lantern-expedition-v1';
 const SETTINGS_KEY = 'lantern-expedition-settings';
 const JR = 56;                               // 조이스틱 반경 (px)
@@ -50,45 +50,94 @@ const OFFLINE_CHEST_MIN = 20;                // 오프라인 동안 이 분마�
 // 스킬 수는 등급이 정한다 (RARITY의 skills): 노말 s1 / 레어 s1 · s2 / 에픽 s1 ~ s3 / 레전더리 s1 ~ s4. n번째 스킬은 영웅 레벨 SKILL_LV[n-1]에 열린다
 //   s3 = 특성 (trait: 그 영웅에게만 붙는 능력치. atk · aspd · crit · cdr · ls · dr), s4 = 각성 (cd초마다 dur초 동안 피해 2배)
 // s1: 쿨타임 스킬, s2: 영웅 레벨 SKILL2_LV에 열리는 스킬 (trig: every=기본 공격 n번마다, crit=치명타 시, status=상태이상 대상 적중 시, cd=쿨타임, passive=상시)
+// 포지션: 영웅이 원정대에서 맡는 자리. front = 대열에서 진행 방향으로 얼마나 앞에 서는가 (음수면 뒤), order = 대열 가운데부터 채우는 순서
+const POS = {
+  tank:    { name: '탱커',   front: 26,  order: 0, desc: '맨 앞에서 적을 붙잡고 맞아 준다' },
+  fighter: { name: '전사',   front: 10,  order: 1, desc: '앞에서 싸우는 근접 공격수' },
+  archer:  { name: '사수',   front: -14, order: 2, desc: '뒤에서 한 명씩 노리는 원거리 공격수' },
+  mage:    { name: '마법사', front: -22, order: 3, desc: '뒤에서 여럿을 한꺼번에 공격한다' },
+  support: { name: '지원가', front: -28, order: 4, desc: '원정대 전체를 강하게 만든다' },
+  healer:  { name: '치유사', front: -30, order: 5, desc: '다친 동료를 회복시킨다' },
+};
+// 스킬 코드는 "틀"을 같이 쓴다: k1 · k2 = 첫째 · 둘째 스킬에 쓸 틀의 이름 (그 틀을 처음 가진 영웅의 id. 안 적으면 자기 id).
+//   틀마다 s1 · s2에 적은 수치를 읽는다 (ratio 배율, st 상태이상, n 횟수, pct 회복 비율, aspd · dur 버프, amp 피해 증가, ls 흡혈). 안 적으면 그 틀의 기본값
+// role = 그 영웅의 특징을 한 낱말로. 겉모습(모자 · 무기)은 render.js의 drawHero에 영웅 id별로 그려져 있다 (없으면 색깔 있는 동그란 몸만 나온다)
 const HERO_DEFS = [
-  { id: 'luke', name: '방패 루크', short: '루크', role: '탱커', rarity: 'rare', color: '#5b8def', hp: 260, atk: 10, rate: 1.0, range: 0, r: 16,
+  { id: 'luke', name: '방패 루크', short: '루크', pos: 'tank', role: '도발', rarity: 'rare', color: '#5b8def', hp: 260, atk: 10, rate: 1.0, range: 0, r: 16,
     s1: { name: '도발', cd: 9, desc: '주변 적을 끌어당기고 4초 동안 받는 피해 절반' },
     s2: { name: '방패 강타', trig: 'every', n: 4, desc: '기본 공격 4번마다 주변 적에게 150% 피해 + 밀쳐내기' } },
-  { id: 'teo', name: '장궁 테오', short: '테오', role: '원거리', rarity: 'normal', color: '#6cc070', hp: 110, atk: 16, rate: 1.1, range: 230, r: 14, proj: 'arrow',
+  { id: 'teo', name: '장궁 테오', short: '테오', pos: 'archer', role: '연사', rarity: 'normal', color: '#6cc070', hp: 110, atk: 16, rate: 1.1, range: 230, r: 14, proj: 'arrow',
     s1: { name: '연사', cd: 7, desc: '가까운 적에게 화살 5발 (각 120%)' },
     s2: { name: '급소 사격', trig: 'crit', icd: 3, desc: '치명타가 터지면 체력이 가장 많은 적에게 300% 관통 화살' } },
-  { id: 'bella', name: '성수 벨라', short: '벨라', role: '치유', rarity: 'epic', color: '#f1e3a0', hp: 120, atk: 6, rate: 1.0, range: 190, r: 14, proj: 'spark', heal: 18,
+  { id: 'bella', name: '성수 벨라', short: '벨라', pos: 'healer', role: '부활', rarity: 'epic', color: '#f1e3a0', hp: 120, atk: 6, rate: 1.0, range: 190, r: 14, proj: 'spark', heal: 18,
     s1: { name: '축복', cd: 12, desc: '체력 60% 아래 동료가 있으면 원정대 전체 35% 회복' },
     s2: { name: '부활의 기도', trig: 'cd', cd: 20, desc: '쓰러진 동료를 곧바로 일으켜 세움 (체력 50%)' },
     s3: { name: '신성한 손길', trait: { aspd: 0.3 }, desc: '공격 속도 +30% (치유도 그만큼 잦아진다)' } },
-  { id: 'mina', name: '쌍검 미나', short: '미나', role: '근접', rarity: 'rare', color: '#ea6b8e', hp: 150, atk: 14, rate: 1.6, range: 0, r: 14, onHit: { st: 'bleed', n: 1, p: 0.5 },
+  { id: 'mina', name: '쌍검 미나', short: '미나', pos: 'fighter', role: '출혈', rarity: 'rare', color: '#ea6b8e', hp: 150, atk: 14, rate: 1.6, range: 0, r: 14, onHit: { st: 'bleed', n: 1, p: 0.5 },
     s1: { name: '회오리', cd: 6, desc: '주변 적 전부에게 220% 피해 + 출혈' },
     s2: { name: '처형', trig: 'status', st: 'bleed', need: 2, icd: 4, desc: '출혈 2중첩 이상인 적을 때리면 350% 추가 피해' } },
-  { id: 'lora', name: '불꽃 로라', short: '로라', role: '광역', rarity: 'legend', color: '#ff8b3d', hp: 100, atk: 12, rate: 0.8, range: 210, r: 14, proj: 'fire', splash: 55, onHit: { st: 'burn', n: 1, p: 1 },
+  { id: 'lora', name: '불꽃 로라', short: '로라', pos: 'mage', role: '화상', rarity: 'legend', color: '#ff8b3d', hp: 100, atk: 12, rate: 0.8, range: 210, r: 14, proj: 'fire', splash: 55, onHit: { st: 'burn', n: 1, p: 1 },
     s1: { name: '화염 폭발', cd: 10, desc: '적이 가장 많이 뭉친 곳에 운석 (450% + 화상 2중첩)' },
     s2: { name: '불꽃 비', trig: 'every', n: 5, desc: '기본 공격 5번마다 불덩이 3개 (120% + 화상)' },
     s3: { name: '타오르는 마력', trait: { atk: 0.35 }, desc: '공격력 +35%' },
     s4: { name: '불사조의 날개', cd: 26, dur: 8, desc: '26초마다 8초 동안 각성: 입히는 피해 2배' } },
-  { id: 'siu', name: '얼음창 시우', short: '시우', role: '빙결', rarity: 'epic', color: '#7fd6ea', hp: 150, atk: 11, rate: 1.2, range: 0, r: 15, reach: 30, onHit: { st: 'frost', n: 1, p: 1 },
+  { id: 'siu', name: '얼음창 시우', short: '시우', pos: 'fighter', role: '동상', rarity: 'epic', color: '#7fd6ea', hp: 150, atk: 11, rate: 1.2, range: 0, r: 15, reach: 30, onHit: { st: 'frost', n: 1, p: 1 },
     s1: { name: '서리 폭풍', cd: 11, desc: '주변 적에게 180% 피해 + 동상 2중첩' },
     s2: { name: '빙창 관통', trig: 'status', st: 'freeze', icd: 3, desc: '얼어붙은 적을 때리면 일직선으로 250% 관통' },
     s3: { name: '혹한의 일격', trait: { crit: 0.18 }, desc: '치명타 확률 +18%' } },
-  { id: 'ruby', name: '독침 루비', short: '루비', role: '중독', rarity: 'rare', color: '#b56be0', hp: 105, atk: 12, rate: 1.3, range: 220, r: 14, proj: 'dart', onHit: { st: 'poison', n: 1, p: 1 },
+  { id: 'ruby', name: '독침 루비', short: '루비', pos: 'archer', role: '중독', rarity: 'rare', color: '#b56be0', hp: 105, atk: 12, rate: 1.3, range: 220, r: 14, proj: 'dart', onHit: { st: 'poison', n: 1, p: 1 },
     s1: { name: '독 안개', cd: 9, desc: '4초 동안 독구름. 안에 있는 적이 계속 중독' },
     s2: { name: '맹독 폭발', trig: 'status', st: 'poison', need: 6, icd: 5, desc: '중독 6중첩 이상인 적을 터뜨려 중첩당 40% 피해' } },
-  { id: 'bori', name: '도끼 보리', short: '보리', role: '돌격', rarity: 'epic', color: '#c98a4b', hp: 210, atk: 13, rate: 0.9, range: 0, r: 17, onHit: { st: 'bleed', n: 1, p: 1 },
+  { id: 'bori', name: '도끼 보리', short: '보리', pos: 'fighter', role: '흡혈', rarity: 'epic', color: '#c98a4b', hp: 210, atk: 13, rate: 0.9, range: 0, r: 17, onHit: { st: 'bleed', n: 1, p: 1 },
     s1: { name: '회전 도끼', cd: 8, desc: '주변 적을 끌어당기며 200% 피해 + 출혈 2중첩' },
-    s2: { name: '피의 갈증', trig: 'passive', desc: '입힌 피해의 15%만큼 체력 회복 (흡혈)' },
+    s2: { name: '피의 갈증', trig: 'passive', ls: 0.15, desc: '입힌 피해의 15%만큼 체력 회복 (흡혈)' },
     s3: { name: '광전사', trait: { atk: 0.3 }, desc: '공격력 +30%' } },
-  { id: 'chichi', name: '방울 치치', short: '치치', role: '응원', rarity: 'epic', color: '#f3a8f0', hp: 130, atk: 8, rate: 1.2, range: 200, r: 14, proj: 'note',
+  { id: 'chichi', name: '방울 치치', short: '치치', pos: 'support', role: '공속', rarity: 'epic', color: '#f3a8f0', hp: 130, atk: 8, rate: 1.2, range: 200, r: 14, proj: 'note',
     s1: { name: '응원가', cd: 14, desc: '8초 동안 원정대 공격 속도 +30%' },
     s2: { name: '박자 맞추기', trig: 'every', n: 3, desc: '기본 공격 3번마다 5초 동안 원정대 피해 +20%' },
     s3: { name: '앵콜', trait: { cdr: 0.3 }, desc: '스킬 쿨타임 -30% (응원가를 더 자주 부른다)' } },
-  { id: 'kai', name: '번개 카이', short: '카이', role: '연쇄', rarity: 'legend', color: '#ffe066', hp: 110, atk: 14, rate: 0.9, range: 230, r: 14, proj: 'bolt', chain: 2,
+  { id: 'kai', name: '번개 카이', short: '카이', pos: 'mage', role: '연쇄', rarity: 'legend', color: '#ffe066', hp: 110, atk: 14, rate: 0.9, range: 230, r: 14, proj: 'bolt', chain: 2,
     s1: { name: '뇌우', cd: 10, desc: '주변 적에게 번개 6번 (각 200%)' },
     s2: { name: '과부하', trig: 'crit', icd: 4, desc: '치명타가 터지면 적 5명을 잇는 번개 (각 120%)' },
     s3: { name: '전류 가속', trait: { aspd: 0.35 }, desc: '공격 속도 +35%' },
     s4: { name: '폭풍의 화신', cd: 26, dur: 8, desc: '26초마다 8초 동안 각성: 입히는 피해 2배' } },
+  // ---- 0.4.6에 합류한 10명. 새 영웅은 언제나 맨 뒤에 붙인다 (영웅 번호가 세이브에 저장되므로 순서를 바꾸면 안 된다)
+  { id: 'hans', name: '목검 한스', short: '한스', pos: 'fighter', role: '휘두르기', rarity: 'normal', color: '#c8a26a', hp: 150, atk: 13, rate: 1.2, range: 0, r: 14, k1: 'mina', k2: 'mina',
+    s1: { name: '크게 휘두르기', cd: 7, ratio: 1.8, st: null, desc: '주변 적 전부에게 180% 피해' },
+    s2: { name: '마무리 일격', trig: 'every', n: 5, ratio: 2.5, desc: '기본 공격 5번마다 250% 추가 피해' } },
+  { id: 'duri', name: '통나무 두리', short: '두리', pos: 'tank', role: '도발', rarity: 'normal', color: '#8fa06a', hp: 230, atk: 8, rate: 0.9, range: 0, r: 16, k1: 'luke', k2: 'luke',
+    s1: { name: '버티기', cd: 10, desc: '주변 적을 끌어당기고 4초 동안 받는 피해 절반' },
+    s2: { name: '밀쳐내기', trig: 'every', n: 5, desc: '기본 공격 5번마다 주변 적에게 150% 피해 + 밀쳐내기' } },
+  { id: 'dongi', name: '북소리 동이', short: '동이', pos: 'support', role: '공속', rarity: 'normal', color: '#e39a6a', hp: 115, atk: 8, rate: 1.1, range: 190, r: 14, proj: 'note', k1: 'chichi', k2: 'chichi',
+    s1: { name: '둥둥 북소리', cd: 14, aspd: 0.15, dur: 6, desc: '6초 동안 원정대 공격 속도 +15%' },
+    s2: { name: '힘내라 장단', trig: 'every', n: 4, amp: 0.1, desc: '기본 공격 4번마다 5초 동안 원정대 피해 +10%' } },
+  { id: 'garam', name: '철퇴 가람', short: '가람', pos: 'tank', role: '끌어당김', rarity: 'rare', color: '#7f8fb8', hp: 250, atk: 11, rate: 0.9, range: 0, r: 17, k1: 'bori', k2: 'luke',
+    s1: { name: '끌어치기', cd: 9, ratio: 1.6, st: null, desc: '주변 적을 끌어당기며 160% 피해' },
+    s2: { name: '철퇴 강타', trig: 'every', n: 4, desc: '기본 공격 4번마다 주변 적에게 150% 피해 + 밀쳐내기' } },
+  { id: 'somi', name: '약초 소미', short: '소미', pos: 'healer', role: '회복', rarity: 'rare', color: '#a8d98a', hp: 110, atk: 6, rate: 1.0, range: 190, r: 14, proj: 'spark', heal: 12, k1: 'bella', k2: 'bella',
+    s1: { name: '약초 달이기', cd: 14, pct: 0.22, desc: '체력 60% 아래 동료가 있으면 원정대 전체 22% 회복' },
+    s2: { name: '응급 처치', trig: 'cd', cd: 30, desc: '쓰러진 동료를 일으켜 세움 (체력 50%)' } },
+  { id: 'momo', name: '눈송이 모모', short: '모모', pos: 'mage', role: '동상', rarity: 'rare', color: '#bfe3f2', hp: 100, atk: 11, rate: 0.9, range: 200, r: 14, proj: 'spark', onHit: { st: 'frost', n: 1, p: 0.6 }, k1: 'lora', k2: 'siu',
+    s1: { name: '얼음 기둥', cd: 11, ratio: 3, st: 'frost', stacks: 2, desc: '적이 가장 많이 뭉친 곳에 얼음 기둥 (300% + 동상 2중첩)' },
+    s2: { name: '고드름', trig: 'status', st: 'freeze', icd: 4, desc: '얼어붙은 적을 때리면 일직선으로 250% 관통' } },
+  { id: 'rena', name: '석궁 레나', short: '레나', pos: 'archer', role: '관통', rarity: 'epic', color: '#d98a8a', hp: 115, atk: 17, rate: 0.8, range: 250, r: 14, proj: 'arrow', k1: 'teo', k2: 'teo',
+    s1: { name: '세 발 장전', cd: 8, n: 3, ratio: 2, desc: '가까운 적에게 굵은 화살 3발 (각 200%)' },
+    s2: { name: '꿰뚫는 화살', trig: 'crit', icd: 3, desc: '치명타가 터지면 체력이 가장 많은 적에게 300% 관통 화살' },
+    s3: { name: '매의 눈', trait: { crit: 0.2 }, desc: '치명타 확률 +20%' } },
+  { id: 'baru', name: '강철 바루', short: '바루', pos: 'tank', role: '철벽', rarity: 'epic', color: '#8aa0b8', hp: 300, atk: 10, rate: 0.9, range: 0, r: 18, k1: 'luke',
+    s1: { name: '강철 함성', cd: 9, desc: '주변 적을 끌어당기고 4초 동안 받는 피해 절반' },
+    s2: { name: '불굴', trig: 'passive', ls: 0.12, desc: '입힌 피해의 12%만큼 체력 회복 (흡혈)' },
+    s3: { name: '강철 갑주', trait: { dr: 0.2 }, desc: '받는 피해 -20%' } },
+  { id: 'aria', name: '성검 아리아', short: '아리아', pos: 'fighter', role: '성검', rarity: 'legend', color: '#ffe9a8', hp: 190, atk: 15, rate: 1.1, range: 0, r: 16, k1: 'mina', k2: 'siu',
+    s1: { name: '성검 난무', cd: 8, ratio: 3, r: 120, st: null, desc: '주변 적 전부에게 300% 피해' },
+    s2: { name: '빛의 일섬', trig: 'every', n: 4, desc: '기본 공격 4번마다 일직선으로 250% 관통' },
+    s3: { name: '맹세', trait: { ls: 0.12 }, desc: '흡혈 +12%' },
+    s4: { name: '빛의 수호자', cd: 26, dur: 8, desc: '26초마다 8초 동안 각성: 입히는 피해 2배' } },
+  { id: 'luna', name: '달빛 루나', short: '루나', pos: 'healer', role: '회복', rarity: 'legend', color: '#c9c2f5', hp: 125, atk: 7, rate: 1.0, range: 200, r: 14, proj: 'spark', heal: 24, k1: 'bella', k2: 'bella',
+    s1: { name: '달의 은총', cd: 11, pct: 0.45, desc: '체력 60% 아래 동료가 있으면 원정대 전체 45% 회복' },
+    s2: { name: '되살리는 빛', trig: 'cd', cd: 14, desc: '쓰러진 동료를 곧바로 일으켜 세움 (체력 50%)' },
+    s3: { name: '고요한 밤', trait: { cdr: 0.25 }, desc: '스킬 쿨타임 -25%' },
+    s4: { name: '만월', cd: 26, dur: 8, desc: '26초마다 8초 동안 각성: 치유량과 피해 2배' } },
 ];
 // 등급: weight = 주점 카드에 나올 비중, shards = 카드 한 장(×1)이 주는 조각 (드문 등급일수록 적다)
 //   드문 등급의 조각이 모자라는 것은 공용 조각으로 푼다: 만렙 영웅의 조각 → 그 등급 공용 조각 → 같은 등급의 다른 영웅(3:1)이나 윗등급 공용 조각(10:1). SHARD_X
@@ -102,9 +151,9 @@ const SKILL_LV = [1, 5, 10, 15];             // n번째 스킬이 열리는 영�
 const RARITY_KEYS = Object.keys(RARITY);
 const RARITY_TOTAL = RARITY_KEYS.reduce((a, k) => a + RARITY[k].weight, 0);
 // 주점: cost = 모집 1회 금화, refresh = 카드 바꾸기 금화, auto = 자동 교체 간격(게임 시간 초), pity = 이만큼 바꾸면 레전더리 보장
-// 모집 값은 뽑을수록 오른다: base + step × 지금까지 모집한 횟수 (max까지)
+// 모집 값은 뽑을수록 오른다: base + step × 지금까지 모집한 횟수 (max까지). 0.4.6: 한 번에 2씩 → 1씩 (20에서 시작해 140번째에 160)
 // 카드 바꾸기는 모집 값의 절반 (원작: 모집 100 · 새로고침 50). 금화 10으로 고정이던 때는 500이면 레전더리 카드가 보장됐다 (천장 50번 × 10)
-const PUB = { base: 20, step: 2, max: 160, auto: 90, pity: 50, get cost() { return Math.min(this.max, this.base + this.step * pub.pulls); }, get refresh() { return Math.round(this.cost / 2); } };
+const PUB = { base: 20, step: 1, max: 160, auto: 90, pity: 50, get cost() { return Math.min(this.max, this.base + this.step * pub.pulls); }, get refresh() { return Math.round(this.cost / 2); } };
 // 영웅 레벨업 값
 //   조각: 계단식. Lv1 ~ 10에서 올릴 때는 5, Lv11 ~ 19에서는 10 (누적: Lv10까지 45, 만렙 Lv20까지 140)
 //   고기: 10에서 시작해 레벨마다 1.22배. Lv5 → 6: 22, Lv10 → 11: 60, Lv19 → 20: 359 (누적: Lv10까지 227, Lv20까지 1,942)
@@ -202,7 +251,8 @@ const CURVE = {
   hero: t => Math.min(MAX_HERO_LV - 2, Math.max(2, CURVE.squad(t) - 1)),               // 가장 높은 영웅의 레벨: 용병단 레벨보다 하나 낮게, 만렙보다 둘 낮은 18까지
   // 두 번째로 높은 영웅은 대개 레어다. 레어 한 명의 조각은 모집 한 번에 평균 0.5개 → 12번째 안개쯤 Lv3 ~ 4, 24번째쯤 Lv10, 36번째쯤 Lv15까지 닿는다. 그보다 낮게 잡는다
   hero2: t => Math.max(2, Math.round(0.25 * t)),                                       // 두 번째로 높은 영웅의 레벨: 6 → 2, 12 → 3, 18 → 5, 24 → 6, 30 → 8, 36 → 9
-  owned: t => Math.min(6, 2 + Math.round(0.13 * (t - 2))),                             // 보유 영웅: 6 → 3, 14 → 4, 22 → 5, 29 → 6 (운에 달린 일이라 낮게 둔다)
+  // 0.4.6: 영웅이 20명(노말 4 · 레어 6 · 에픽 6 · 레전더리 4)이 되어 새 영웅을 만나기 쉬워졌다. 노말 · 레어 10명 가운데 9명까지만 요구한다 (운에 달린 일이라 낮게)
+  owned: t => 2 + stepAt(4, 6, 9, 13, 18, 24, 31)(t),                                  // 보유 영웅: 4번째 안개에서 3명, 6 → 4, 9 → 5, 13 → 6, 18 → 7, 24 → 8, 31 → 9
 };
 const MIS_HERO_EVERY = 3;                                                              // 영웅 레벨 임무는 안개 몇 개마다 (한 번은 한 명, 한 번은 두 명)
 const misHunt = t => Math.min(80, 10 + 2 * t);

@@ -62,7 +62,7 @@ function rebuildParty() {
   for (const h of heroes) {
     const el = document.createElement('button'); el.type = 'button';
     el.className = 'chip' + (h.clone ? ' clone' : '');
-    el.title = `${h.def.name} · ${RARITY[h.def.rarity].name} ${h.def.role}${h.clone ? ' (분신)' : ' · 눌러서 레벨업'}`;
+    el.title = `${h.def.name} · ${RARITY[h.def.rarity].name} ${POS[h.def.pos].name}${h.clone ? ' (분신)' : ' · 눌러서 레벨업'}`;
     el.style.setProperty('--rc', RARITY[h.def.rarity].color);
     el.innerHTML = `<span class="face" style="--c:${h.def.color}"></span><span class="nm">${h.def.short}</span><span class="bar hp"><i></i></span><span class="bar sk"><i></i></span>`;
     h.el = el; h.hpEl = el.querySelector('.hp i'); h.skEl = el.querySelector('.sk i');
@@ -266,7 +266,7 @@ function grantShards(i, n) {
   const active = roster.filter(o => o.owned && o.active).length;
   r.active = active < squadLimit();
   if (r.active && !mode) rebuildSquad(true);
-  toast(`${HERO_DEFS[i].name} 합류! (${HERO_DEFS[i].role})${r.active ? '' : ' · 출전 자리가 없어 대기 중'}`);
+  toast(`${HERO_DEFS[i].name} 합류! (${POS[HERO_DEFS[i].pos].name})${r.active ? '' : ' · 출전 자리가 없어 대기 중'}`);
   return true;
 }
 function rollCard(force) {
@@ -398,7 +398,7 @@ const PANELS = {
       const used = pub.picked >= 0, left = Math.max(1, PUB.pity - pub.pity), t = Math.max(0, Math.ceil(pub.next - playTime));
       const cards = pub.line.map((i, k) => {
         const d = HERO_DEFS[i], R = RARITY[d.rarity], r = roster[i];
-        return `<div class="hcard${pub.picked === k ? ' picked' : used ? ' faded' : ''}" data-r="${d.rarity}" style="--rc:${R.color}"><span class="face" style="--c:${d.color}"></span><b>${d.name}</b><span class="rar">${R.name}</span><span class="dim">${r.owned && isMax(i) ? '공용 조각' : '조각'} +${R.shards}</span>${r.owned ? `<span class="tag">Lv ${r.lvl}</span>` : '<span class="tag hot">새 영웅</span>'}</div>`;
+        return `<div class="hcard${pub.picked === k ? ' picked' : used ? ' faded' : ''}" data-r="${d.rarity}" style="--rc:${R.color}"><span class="face" style="--c:${d.color}"></span><b>${d.name}</b><span class="rar">${R.name} · ${POS[d.pos].name}</span><span class="dim">${r.owned && isMax(i) ? '공용 조각' : '조각'} +${R.shards}</span>${r.owned ? `<span class="tag">Lv ${r.lvl}</span>` : '<span class="tag hot">새 영웅</span>'}</div>`;
       }).join('');
       const pity = pub.line.some(isLegend) ? '이번 카드에 레전더리가 있어요.' : `카드를 ${left}번 더 바꾸면 레전더리가 반드시 나와요.`;
       return head('주점', purse(GOLD_SVG, res.gold, '금화')) +
@@ -424,7 +424,8 @@ const PANELS = {
   heroes: {
     render(focus) {
       const act = roster.filter(r => r.owned && r.active).length, cap = heroCap();
-      const rows = HERO_DEFS.map((d, i) => {
+      const order = HERO_DEFS.map((_, i) => i).sort((a, b) => roster[b].owned - roster[a].owned || POS[HERO_DEFS[a].pos].order - POS[HERO_DEFS[b].pos].order || a - b);   // 보유한 영웅 먼저, 그 안에서는 포지션 순서
+      const rows = order.map(i => { const d = HERO_DEFS[i];
         const r = roster[i], R = RARITY[d.rarity], c = lvCost(r.lvl), max = r.lvl >= MAX_HERO_LV;
         let cost;
         if (!r.owned) cost = '<span class="dim">주점에서 뽑으면 합류해요</span>';
@@ -435,7 +436,7 @@ const PANELS = {
         const skills = [d.s1, d.s2, d.s3, d.s4].slice(0, R.skills).map((s, k) => (r.lvl >= SKILL_LV[k] ? `${s.name}: ${s.desc}` : `<span style="opacity:.6">${s.name} (Lv${SKILL_LV[k]}): ${s.desc}</span>`)).join('<br>');
         const toggle = r.owned ? `<button class="btn xs ${r.active ? 'primary' : 'ghost'}" type="button" data-act="act:${i}"${mode || (!r.active && act >= squadLimit()) || (r.active && act <= 1) ? ' disabled' : ''}>${r.active ? '출전 중' : '대기'}</button>` : '';
         return `<div class="row${r.owned ? '' : ' off'}${focus === i ? ' focus' : ''}" data-row="${i}" style="--rc:${R.color}"><span class="face" style="--c:${d.color}"></span>` +
-          `<div class="rmain"><div class="rline"><b>${d.name}</b><span class="rar">${R.name} · 스킬 ${R.skills}개</span><span class="dim">${d.role}</span></div>` +
+          `<div class="rmain"><div class="rline"><b>${d.name}</b><span class="rar">${R.name} · 스킬 ${R.skills}개</span><span class="dim">${POS[d.pos].name} · ${d.role}</span></div>` +
           `<div class="dim"><span style="color:var(--glow)">전투력 ${fmtN(heroPower(i))}</span> · 공격력 ${Math.round(atkOf(i))} · 체력 ${hpOf(i)}<br>${skills}</div><div class="cost">${cost}</div></div>` +
           `<div class="rside"><span class="big">Lv ${r.lvl}</span>${r.owned && !max ? `<button class="btn sm primary" type="button" data-act="lv:${i}"${canLevel(i) ? '' : ' disabled'}>레벨업</button>` : ''}` +
           `${fillable(i) > 0 ? `<button class="btn xs ghost" type="button" data-act="fill:${i}">공용 ${fillable(i) * SHARD_X.hero}개 → 조각 ${fillable(i)}</button>` : ''}${toggle}</div></div>`;
@@ -457,7 +458,7 @@ const PANELS = {
       const genRow = genLines ? `<div class="row"><span class="face" style="--c:#8d8a9c"></span><div class="rmain"><div class="rline"><b>공용 조각</b></div>` +
         `<div class="dim">만렙 영웅의 조각이 등급별로 모여요. ${SHARD_X.hero}개로 같은 등급 영웅의 조각 1개(영웅 칸의 버튼), ${SHARD_X.up}개로 윗등급 공용 조각 1개</div>${genLines}</div><span></span></div>` : '';
       return head('영웅', purse(MEAT_SVG, res.meat, '고기')) +
-        `<p class="panel-sub"><b style="color:var(--glow)">원정대 전투력 ${fmtN(squadPower())}</b> — 출전한 영웅의 (공격력 × ${POWER_ATK} + 체력)을 더한 값이에요. 2 ~ 4번 스킬이 하나 열릴 때마다 그 영웅은 +${Math.round(POWER_SKILL * 100)}%.<br>등급이 높을수록 기본 능력치가 높고 스킬이 하나씩 더 있어요 (노말 1 · 레어 2 · 에픽 3 · 레전더리 4). 스킬은 Lv${SKILL_LV.slice(1).join(' · ')}에 차례로 열려요. 영웅 레벨은 용병단 레벨(지금 ${cap})까지. 출전 ${act}/${squadLimit()}명 (훈련장 2레벨마다 +1).</p>` +
+        `<p class="panel-sub"><b style="color:var(--glow)">원정대 전투력 ${fmtN(squadPower())}</b> — 출전한 영웅의 (공격력 × ${POWER_ATK} + 체력)을 더한 값이에요. 2 ~ 4번 스킬이 하나 열릴 때마다 그 영웅은 +${Math.round(POWER_SKILL * 100)}%.<br>포지션은 여섯 가지예요: 탱커 · 전사는 앞에, 사수 · 마법사 · 지원가 · 치유사는 뒤에 서요. 등급이 높을수록 기본 능력치가 높고 스킬이 하나씩 더 있어요 (노말 1 · 레어 2 · 에픽 3 · 레전더리 4). 스킬은 Lv${SKILL_LV.slice(1).join(' · ')}에 차례로 열려요. 영웅 레벨은 용병단 레벨(지금 ${cap})까지. 출전 ${act}/${squadLimit()}명 (훈련장 2레벨마다 +1).</p>` +
         `<div class="scroll">${supRow}${genRow}${rows}</div><div class="btns"><button class="btn ghost" type="button" data-act="close">닫기</button></div>`;
     },
     after(focus) { const el = card.querySelector(`[data-row="${focus}"]`); if (el) el.scrollIntoView({ block: 'nearest' }); },

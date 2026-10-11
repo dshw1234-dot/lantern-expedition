@@ -440,8 +440,8 @@ function spawnPack(den) {
     }
   }
 }
-// 출전 영웅: 근접을 앞(가운데)에, 원거리를 뒤(바깥)에 두려고 정렬한다
-function sortHeroes() { heroes.sort((a, b) => (a.def.range > 0) - (b.def.range > 0) || a.idx - b.idx || a.clone - b.clone); }
+// 출전 영웅: 포지션 순서(탱커 → 전사 → 사수 → 마법사 → 지원가 → 치유사)로 정렬한다. 앞 순서일수록 대열의 가운데에 선다
+function sortHeroes() { heroes.sort((a, b) => POS[a.def.pos].order - POS[b.def.pos].order || a.idx - b.idx || a.clone - b.clone); }
 function rebuildSquad(keepPos = true) {
   const old = new Map(heroes.filter(h => !h.clone).map(h => [h.idx, h]));
   const clones = heroes.filter(h => h.clone);
@@ -454,13 +454,21 @@ function rebuildSquad(keepPos = true) {
   heroes.push(...clones);
   sortHeroes();
 }
-// 해바라기 배치(황금각) + 바라보는 방향 기준으로 원거리는 뒤로, 근접은 앞으로
+// 대열: 해바라기 배치(황금각)의 자리들을 진행 방향 기준으로 앞에서 뒤로 줄 세운 다음, 포지션 순서대로 앞자리부터 나눠 준다.
+//   heroes가 이미 포지션 순서(탱커 → 전사 → 사수 → 마법사 → 지원가 → 치유사)로 정렬돼 있으므로 i번째 영웅이 i번째로 앞선 자리에 선다.
+//   방향은 16갈래로 끊어서 본다 (조금 꺾을 때마다 자리가 바뀌어 우왕좌왕하지 않게). 거기에 포지션마다 앞뒤로 조금 더 민다 (POS의 front)
+let slotKey = '', slotSpots = [];
 function slotPos(i) {
-  const h = heroes[i];
-  let ox = 0, oy = 0;
-  if (i > 0) { const r = 30 * Math.sqrt(i), a = i * 2.39996; ox = Math.cos(a) * r; oy = Math.sin(a) * r * 0.85; }
-  const k = h && h.def.range > 0 ? -22 : 10;
-  return { x: P.x + ox + P.fx * k, y: P.y + oy + P.fy * k };
+  const n = heroes.length, dir = Math.round(Math.atan2(P.fy, P.fx) / (TAU / 16)), key = n + ':' + dir;
+  if (key !== slotKey) {
+    slotKey = key;
+    const fx = Math.cos(dir * TAU / 16), fy = Math.sin(dir * TAU / 16);
+    slotSpots = [];
+    for (let k = 0; k < n; k++) { const r = k ? 30 * Math.sqrt(k) : 0, a = k * 2.39996; slotSpots.push({ x: Math.cos(a) * r, y: Math.sin(a) * r * 0.85 }); }
+    slotSpots.sort((p, q) => (q.x * fx + q.y * fy) - (p.x * fx + p.y * fy));   // 진행 방향으로 가장 앞선 자리부터
+  }
+  const s = slotSpots[i] || { x: 0, y: 0 }, h = heroes[i], k = h ? POS[h.def.pos].front * 0.4 : 0;
+  return { x: P.x + s.x + P.fx * k, y: P.y + s.y + P.fy * k };
 }
 function placeSquad(x, y) {
   P.x = x; P.y = y; cam.x = x; cam.y = y;

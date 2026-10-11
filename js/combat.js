@@ -35,7 +35,7 @@ function stat(h, k) {
     case 'aspd':    return Math.min(2.5, 1 + g('aspd') + modeBuff('aspd') + (buffs.aspdT > 0 ? buffs.aspd : 0) + trait(h, 'aspd'));
     case 'dodge':   return Math.min(0.5, g('dodge'));
     case 'dr':      return Math.min(0.6, g('dr') + trait(h, 'dr'));
-    case 'ls':      return Math.min(0.35, g('ls') + modeBuff('ls') + (h && h.def.id === 'bori' && skill2On(h) ? 0.15 : 0) + trait(h, 'ls'));
+    case 'ls':      return Math.min(0.35, g('ls') + modeBuff('ls') + (h && h.def.s2.trig === 'passive' && h.def.s2.ls && skill2On(h) ? h.def.s2.ls : 0) + trait(h, 'ls'));
     case 'cdr':     return Math.min(0.6, g('cdr') + modeBuff('cdr') + trait(h, 'cdr'));
   }
   return 0;
@@ -177,9 +177,10 @@ function updHero(h, dt, i, auto) {
   if (h.skillCd <= 0 && cast1(h)) h.skillCd = h.def.s1.cd * cdr;
   if (h.def.s2.trig === 'cd' && skill2On(h) && h.s2cd <= 0 && cast2(h, null)) h.s2cd = h.def.s2.cd * cdr;
   if (h.awakeT > 0) h.awakeT -= dt;
-  if (h.def.s4 && skillOn(h, 4)) {   // 네 번째 스킬(각성): 싸우는 중에 쿨타임이 차면 켜진다
+  const d0 = h.def;
+  if (h.def.s4 && skillOn(h, 4)) {   // 네 번째 스킬(각성): 싸우는 중에(치유사는 동료를 돌보는 중에도) 쿨타임이 차면 켜진다
     h.s4cd -= dt;
-    if (h.s4cd <= 0 && h.target && h.target.isMon) {
+    if (h.s4cd <= 0 && h.target && (h.target.isMon || (d0.heal && h.target.isHero))) {
       h.s4cd = h.def.s4.cd * cdr; h.awakeT = h.def.s4.dur;
       skillText(h, h.def.s4.name); fxs.push({ kind: 'ring', x: h.x, y: h.y, r: 70, t: 0, T: 0.5, c: h.def.color });
     }
@@ -196,7 +197,7 @@ function fxSlash(h, t, r) { fxs.push({ kind: 'slash', x: h.x, y: h.y - 14, a: Ma
 function heroAttack(h, t) {
   h.swing = 0.2;
   const d = h.def;
-  if (t.isHero) { projs.push({ kind: 'spark', x: h.x, y: h.y - 20, t, tx: t.x, ty: t.y, owner: h, spd: 420, heal: d.heal * (1 + 0.1 * lv.forge) * lvMul(h.idx) * supplyMul() }); return; }
+  if (t.isHero) { projs.push({ kind: 'spark', x: h.x, y: h.y - 20, t, tx: t.x, ty: t.y, owner: h, spd: 420, heal: d.heal * (1 + 0.1 * lv.forge) * lvMul(h.idx) * supplyMul() * (h.awakeT > 0 ? 2 : 1) }); return; }
   if (t.isNode) {
     if (d.range > 0 && d.proj !== 'bolt') projs.push({ kind: d.proj, x: h.x, y: h.y - 18, t, tx: t.x, ty: t.y, owner: h, spd: 520, node: true });
     else {
@@ -254,9 +255,10 @@ function lineHit(h, x, y, ang, len, w, ratio, col) {   // 일직선 관통
 }
 function skillText(h, name) { addText(h.x, h.y - h.def.r * 2 - 26, name + '!', '#ffe08a', false, 1.1, 15); }
 // 첫 번째 스킬 (쿨타임). 조건이 안 맞으면 false를 돌려 쿨타임을 쓰지 않는다
+// 여러 영웅이 같은 틀을 쓴다: d.k1(없으면 자기 id)이 틀의 이름이고, 수치는 d.s1에 적힌 것을 먼저 쓴다 (없으면 그 틀의 기본값)
 function cast1(h) {
-  const d = h.def;
-  switch (d.id) {
+  const d = h.def, S = d.s1, has = k => Object.prototype.hasOwnProperty.call(S, k);
+  switch (d.k1 || d.id) {
     case 'luke': {
       if (!monstersNear(h.x, h.y, 170).length) return false;
       for (const m of monstersNear(h.x, h.y, 240)) { m.forced = h; m.forcedT = 4; if (m.state === 'idle') m.state = 'chase'; }
@@ -267,26 +269,26 @@ function cast1(h) {
     case 'teo': {
       const ts = monstersNear(h.x, h.y, d.range + 20).sort((a, b) => d2(a.x, a.y, h.x, h.y) - d2(b.x, b.y, h.x, h.y)).slice(0, 5);
       if (!ts.length) return false;
-      for (let i = 0; i < 5; i++) { const t = ts[i % ts.length]; projs.push({ kind: 'arrow', gold: true, x: h.x + rand(-6, 6), y: h.y - 18 + rand(-6, 6), t, tx: t.x, ty: t.y, owner: h, spd: 520 + i * 40, ratio: 1.2 }); }
+      for (let i = 0, n = S.n || 5; i < n; i++) { const t = ts[i % ts.length]; projs.push({ kind: 'arrow', gold: true, x: h.x + rand(-6, 6), y: h.y - 18 + rand(-6, 6), t, tx: t.x, ty: t.y, owner: h, spd: 520 + i * 40, ratio: S.ratio || 1.2 }); }
       break;
     }
     case 'bella': {
       if (!heroes.some(a => !a.down && a.hp / a.maxHp < 0.6)) return false;
-      for (const a of heroes) if (!a.down) { healHero(a, a.maxHp * 0.35); fxs.push({ kind: 'ring', x: a.x, y: a.y, r: 34, t: 0, T: 0.5, c: '#9ff0c0' }); }
+      for (const a of heroes) if (!a.down) { healHero(a, a.maxHp * (S.pct || 0.35)); fxs.push({ kind: 'ring', x: a.x, y: a.y, r: 34, t: 0, T: 0.5, c: '#9ff0c0' }); }
       break;
     }
     case 'mina': {
-      const near = monstersNear(h.x, h.y, 100);
+      const rr = S.r || 100, near = monstersNear(h.x, h.y, rr);
       if (near.length < 2 && !(near.length && near[0].d.boss)) return false;
-      for (const m of near) hitMonster(h, m, 2.2, { st: 'bleed', color: '#ffd0dc' });
-      fxs.push({ kind: 'whirl', x: h.x, y: h.y - 12, r: 100, t: 0, T: 0.35, c: '#ff9ab5' });
+      for (const m of near) hitMonster(h, m, S.ratio || 2.2, { st: has('st') ? S.st : 'bleed', color: '#ffd0dc' });
+      fxs.push({ kind: 'whirl', x: h.x, y: h.y - 12, r: rr, t: 0, T: 0.35, c: d.id === 'mina' ? '#ff9ab5' : d.color });
       break;
     }
     case 'lora': {
       const cand = monstersNear(h.x, h.y, d.range + 40);
       if (!cand.length) return false;
       const c = densest(cand, 110);
-      delayed.push({ kind: 'meteor', x: c.x, y: c.y, r: 120, t: 0.55, T: 0.55, ratio: 4.5, st: 'burn', stacks: 2, owner: h });
+      delayed.push({ kind: 'meteor', x: c.x, y: c.y, r: 120, t: 0.55, T: 0.55, ratio: S.ratio || 4.5, st: S.st || 'burn', stacks: S.stacks || 2, owner: h });
       break;
     }
     case 'siu': {
@@ -308,20 +310,21 @@ function cast1(h) {
       const near = monstersNear(h.x, h.y, 150);
       if (!near.length) return false;
       for (const m of near) if (!m.d.boss) { m.x += (h.x - m.x) * 0.6; m.y += (h.y - m.y) * 0.6; }
-      for (const m of monstersNear(h.x, h.y, 110)) hitMonster(h, m, 2, { st: 'bleed', stacks: 2, color: '#ffc7a0' });
-      fxs.push({ kind: 'whirl', x: h.x, y: h.y - 12, r: 110, t: 0, T: 0.4, c: '#e0a060' });
+      for (const m of monstersNear(h.x, h.y, 110)) hitMonster(h, m, S.ratio || 2, { st: has('st') ? S.st : 'bleed', stacks: 2, color: '#ffc7a0' });
+      fxs.push({ kind: 'whirl', x: h.x, y: h.y - 12, r: 110, t: 0, T: 0.4, c: d.id === 'bori' ? '#e0a060' : d.color });
       break;
     }
     case 'chichi': {
       if (!monstersNear(P.x, P.y, ENGAGE).length) return false;
-      buffs.aspd = 0.3; buffs.aspdT = 8;
-      for (const a of heroes) if (!a.down) fxs.push({ kind: 'ring', x: a.x, y: a.y, r: 30, t: 0, T: 0.5, c: '#f3a8f0' });
+      if (buffs.aspdT > 0 && buffs.aspd > (S.aspd || 0.3)) return false;   // 더 센 응원이 걸려 있으면 덮어쓰지 않고 기다린다
+      buffs.aspd = S.aspd || 0.3; buffs.aspdT = S.dur || 8;
+      for (const a of heroes) if (!a.down) fxs.push({ kind: 'ring', x: a.x, y: a.y, r: 30, t: 0, T: 0.5, c: d.color });
       break;
     }
     case 'kai': {
       const cand = monstersNear(h.x, h.y, d.range + 20);
       if (!cand.length) return false;
-      for (let k = 0; k < 6; k++) { const m = pick(cand); delayed.push({ kind: 'strike', x: m.x, y: m.y, target: m, t: 0.12 * k + 0.05, T: 0.4, ratio: 2, owner: h }); }
+      for (let k = 0, n = S.n || 6; k < n; k++) { const m = pick(cand); delayed.push({ kind: 'strike', x: m.x, y: m.y, target: m, t: 0.12 * k + 0.05, T: 0.4, ratio: S.ratio || 2, owner: h }); }
       break;
     }
     default: return false;
@@ -331,8 +334,8 @@ function cast1(h) {
 }
 // 두 번째 스킬. t = 조건을 만든 적 (없을 수도 있다)
 function cast2(h, t) {
-  const d = h.def;
-  switch (d.id) {
+  const d = h.def, S = d.s2;
+  switch (d.k2 || d.id) {
     case 'luke': {
       const near = monstersNear(h.x, h.y, 90);
       if (!near.length) return false;
@@ -357,14 +360,14 @@ function cast2(h, t) {
       fxs.push({ kind: 'ring', x: a.x, y: a.y, r: 50, t: 0, T: 0.6, c: '#fff3a8' });
       break;
     }
-    case 'mina': if (!t || t.dead) return false; hitMonster(h, t, 3.5, { canCrit: false, color: '#ff8aa8' }); break;
+    case 'mina': if (!t || t.dead) return false; hitMonster(h, t, S.ratio || 3.5, { canCrit: false, color: '#ff8aa8' }); break;
     case 'lora': {
       const cand = monstersNear(h.x, h.y, d.range + 20);
       if (!cand.length) return false;
       for (let k = 0; k < 3; k++) { const m = pick(cand); projs.push({ kind: 'fire', x: h.x, y: h.y - 24, t: m, tx: m.x, ty: m.y, owner: h, spd: 400 + k * 30, ratio: 1.2, splash: 50, st: 'burn', stacks: 1 }); }
       break;
     }
-    case 'siu': if (!t || t.dead) return false; lineHit(h, h.x, h.y, Math.atan2(t.y - h.y, t.x - h.x), 260, 30, 2.5, '#bdefff'); break;
+    case 'siu': if (!t || t.dead) return false; lineHit(h, h.x, h.y, Math.atan2(t.y - h.y, t.x - h.x), 260, 30, S.ratio || 2.5, d.id === 'aria' ? '#fff3c0' : '#bdefff'); break;
     case 'ruby': {
       if (!t || t.dead || !t.st.poison) return false;
       const n = t.st.poison.n;
@@ -374,7 +377,7 @@ function cast2(h, t) {
       fxs.push({ kind: 'ring', x: t.x, y: t.y, r: 60, t: 0, T: 0.35, c: STATUS.poison.col });
       break;
     }
-    case 'chichi': buffs.amp = 0.2; buffs.ampT = 5; break;
+    case 'chichi': if (buffs.ampT > 0 && buffs.amp > (S.amp || 0.2)) return false; buffs.amp = S.amp || 0.2; buffs.ampT = 5; break;
     case 'kai': if (!t || t.dead) return false; chainBolt(h, t, 5, 1.2, 1.2, 170); break;
     default: return false;
   }
@@ -814,9 +817,10 @@ function updDelayed(dt) {
     if (e.t > 0) continue;
     e.done = true;
     if (e.kind === 'meteor') {
-      for (const m of monsters) if (!m.dead && d2(m.x, m.y, e.x, e.y) < (e.r + m.r) ** 2) hitMonster(e.owner, m, e.ratio, { st: e.st, stacks: e.stacks, color: '#ffc27a' });
-      burst(e.x, e.y, '#ff8a3d', 34, 300); burst(e.x, e.y, '#ffd36b', 16, 200);
-      fxs.push({ kind: 'ring', x: e.x, y: e.y, r: e.r, t: 0, T: 0.35, c: '#ffb45a' });
+      const cold = e.st === 'frost';   // 얼음 기둥(모모)은 같은 틀에 색만 차갑게
+      for (const m of monsters) if (!m.dead && d2(m.x, m.y, e.x, e.y) < (e.r + m.r) ** 2) hitMonster(e.owner, m, e.ratio, { st: e.st, stacks: e.stacks, color: cold ? '#c8f4ff' : '#ffc27a' });
+      burst(e.x, e.y, cold ? '#9fe6ff' : '#ff8a3d', 34, 300); burst(e.x, e.y, cold ? '#e8fbff' : '#ffd36b', 16, 200);
+      fxs.push({ kind: 'ring', x: e.x, y: e.y, r: e.r, t: 0, T: 0.35, c: cold ? '#bdefff' : '#ffb45a' });
       shake(5);
     } else if (e.kind === 'strike') {   // 하늘에서 떨어지는 번개
       let m = e.target && !e.target.dead ? e.target : monstersNear(e.x, e.y, 80)[0];
